@@ -1,8 +1,19 @@
 from gammapy.spectrum import SpectrumObservationList
 from gammapy.spectrum.models import SpectralModel
+from gammapy.spectrum import CrabSpectrum
 from astropy import units as u
 from gammapy.utils.fitting import Parameter, Parameters
 import numpy as np
+
+
+fit_range = {
+    'veritas': [0.15, 30] * u.TeV,
+    'magic':  [0.08, 30] * u.TeV,
+    'hess':  [0.5, 30] * u.TeV,
+    'fact':  [0.4, 30] * u.TeV,
+    'fermi':  [0.03, 2] * u.TeV,
+    'joint':  [0.03, 30] * u.TeV,
+}
 
 
 def wstat_profile(mu_sig, n_on, n_off, alpha):
@@ -26,15 +37,14 @@ def load_spectrum_observations(name):
     if name == 'joint':
         spec_obs_list = SpectrumObservationList()
         # extend the list adding all the other SpectrumObservationList
-        for name in {'fermi', 'magic', 'hess', 'fact', 'veritas'}:
-            spectra_path = f'spectra/{name}'
+        for n in {'fermi', 'magic', 'hess', 'fact', 'veritas'}:
+            spectra_path = f'spectra/{n}'
             spec_obs = SpectrumObservationList.read(spectra_path)
             spec_obs_list.extend(spec_obs)
     else:
         spectra_path = f'spectra/{name}'
         spec_obs_list = SpectrumObservationList.read(spectra_path)
-
-    return spec_obs_list
+    return spec_obs_list, fit_range[name]
 
 
 
@@ -72,3 +82,55 @@ class Log10Parabola(SpectralModel):
 
         return amplitude * np.power(xx, exponent)
 
+
+    
+def plot_spectra(sampler, mle_result, fit_range=[0.03, 30] * u.TeV, min_sample=50):
+    joint_model = Log10Parabola(
+        amplitude=3.78 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+        reference=1 * u.Unit('TeV'),
+        alpha=2.49 * u.Unit(''),
+        beta=0.22 * u.Unit(''),
+    )
+    joint_model.plot(energy_range=fit_range, energy_power=2, color='black', label='joint')
+
+    r = np.median(sampler.chain[:, min_sample:, :3], axis=(0, 1))
+    fitted_model = Log10Parabola(
+        amplitude=r[0] * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+        reference=1 * u.Unit('TeV'),
+        alpha=r[1] * u.Unit(''),
+        beta=r[2] * u.Unit(''),
+    )
+    fitted_model.plot(energy_range=fit_range, energy_power=2, color='crimson', label='mcmc')
+                     
+    mle_model = Log10Parabola(
+        amplitude=mle_result.x[0] * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+        reference=1 * u.Unit('TeV'),
+        alpha=mle_result.x[1] * u.Unit(''),
+        beta=mle_result.x[2] * u.Unit(''),
+    )
+    mle_model.plot(energy_range=fit_range, energy_power=2, color='orange', ls='--', label='mle')
+
+
+    fact_model = Log10Parabola(
+        amplitude=3.47 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+        reference=1 * u.Unit('TeV'),
+        alpha=2.56 * u.Unit(''),
+        beta=0.4 * u.Unit(''),
+    )
+    fact_model.plot(energy_range=fit_range, energy_power=2, color='gray', label='fact')
+
+
+    
+    magic_model = Log10Parabola(
+        amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+        reference=1 * u.Unit('TeV'),
+        alpha=2.58 * u.Unit(''),
+        beta=0.43 * u.Unit(''),
+    )
+    magic_model.plot(energy_range=fit_range, energy_power=2, color='gray', ls='--', label='magic')
+
+
+
+
+
+    CrabSpectrum(reference='meyer').model.plot(energy_range=[0.01, 100]*u.TeV, energy_power=2, color='black', ls=':')
