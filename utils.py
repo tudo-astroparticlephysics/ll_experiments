@@ -169,21 +169,25 @@ def apply_range(*arr, fit_range, bins):
     return [a[idx[0]:idx[1]] for a in arr]
 
 
-def load_spectrum_observations(name):
+def load_spectrum_observations(name, low_binning=True):
     """ Load the OGIP files and return a SpectrumObservationList
         SpectrumObservationList has already a method to read from a directory
         http://docs.gammapy.org/dev/api/gammapy.spectrum.SpectrumObservationList.html
     """
+    if low_binning == True:
+        prefix = 'spectra/low_binning'
+    else:
+        prefix = 'spectra'
     if name == 'joint':
         spec_obs_list = SpectrumObservationList()
         # extend the list adding all the other SpectrumObservationList
         for n in {'fermi', 'magic', 'hess', 'fact', 'veritas'}:
-            spectra_path = f'spectra/{n}'
+            spectra_path = f'{prefix}/{n}'
             spec_obs = SpectrumObservationList.read(spectra_path)
             spec_obs_list.extend(spec_obs)
             
     else:
-        spectra_path = f'spectra/{name}'
+        spectra_path = f'{prefix}/{name}'
         spec_obs_list = SpectrumObservationList.read(spectra_path)
 
     for obs in spec_obs_list:
