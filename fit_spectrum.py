@@ -68,10 +68,9 @@ def apply_range(*arr, fit_range, bins):
 def forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit_range=None):
     
     amplitude *= 1e-11
-    
+    obs_bins = observations[0].on_vector.energy.bins.to_value(u.TeV)
     predicted_signal_per_observation = []
     for observation in observations:
-        obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
 
         aeff_bins = observation.aeff.energy
         e_reco_bins = observation.edisp.e_reco
@@ -112,7 +111,6 @@ def forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit
     return predicted_counts
 
 
-
 def get_observed_counts(observations, fit_range=None):
     on_data = []
     off_data = []
@@ -128,11 +126,12 @@ def get_observed_counts(observations, fit_range=None):
     
     return on_data, off_data
 
+
 def interval_transform(x, a, b):
     return np.log(x - a) - np.log(b - x)
 
 
-def plot_landscape(model, output_dir, mu_seed):
+def plot_landscape(model, output_dir, mu_seed=None):
     N = 25
     betas = np.linspace(0, 3, N)
     alphas = np.linspace(1.1, 4.0, N)
@@ -142,7 +141,7 @@ def plot_landscape(model, output_dir, mu_seed):
     a, b = np.meshgrid(alphas, betas)
     for al, be in tqdm(zip(a.ravel(), b.ravel())):
 
-        p = f(amplitude_lowerbound__ = np.log(4.0), alpha_lowerbound__ = np.log(al), beta_lowerbound__= np.log(be), mu_b_interval__ = mu_seed)
+        p = f(amplitude_lowerbound__ = np.log(4.0), alpha_lowerbound__ = np.log(al), beta_lowerbound__= np.log(be))
         zs.append(p)
 
     zs = np.array(zs)
@@ -153,6 +152,7 @@ def plot_landscape(model, output_dir, mu_seed):
     ax1.set_ylabel('beta')
     plt.colorbar(cf, ax=ax1)
     plt.savefig(f'{output_dir}/landscape.pdf')
+    
 
 
 
@@ -177,17 +177,29 @@ def load_spectrum_observations(input_dir, name):
     return spec_obs_list
     
 
-fit_ranges = {'fact': [0.4, 25] * u.TeV, 'magic': [0.08, 30] * u.TeV, 'hess': [0.8, 30] * u.TeV, 'veritas': [0.16, 30] * u.TeV}
+def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
+    '''
+    Calculate value of mu_b for the profile (wstat) likelihood. 
+    '''
+    alpha = exposure_ratio
+    c = alpha * (on_data + off_data) - (alpha + 1)*mu_s
+    d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
+    mu_b = (c + d) / (2*alpha*(alpha + 1))
+    return mu_b
+ 
+    
+fit_ranges = {'fact': [0.4, 30] * u.TeV, 'magic': [0.08, 30] * u.TeV, 'hess': [0.8, 30] * u.TeV, 'veritas': [0.16, 30] * u.TeV}
 
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas']))
 @click.argument('output_dir', type=click.Path(dir_okay=True, file_okay=False))
+@click.option('--model_type', default='full', type=click.Choice(['full', 'profile', 'wstat']))
 @click.option('--n_samples', default=1000)
 @click.option('--n_tune', default=600)
 @click.option('--target_accept', default=0.8)
 @click.option('--n_cores', default=6)
-def fit(input_dir, telescope, output_dir, n_samples, n_tune, target_accept, n_cores):
+def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_accept, n_cores):
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -196,36 +208,42 @@ def fit(input_dir, telescope, output_dir, n_samples, n_tune, target_accept, n_co
    
     on_data, off_data = get_observed_counts(observations, fit_range=fit_range)
     exposure_ratio = observations[0].alpha[0]   # 1/9 = 0.11111
-
+    print(on_data.shape, off_data.shape, exposure_ratio )
+    print(fit_range)
     print(f'Fitting data in {input_dir}/{telescope} with {len(on_data)} bins.')
     
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
 
     with model:
 
-        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=3, lower=0, testval=4)
-        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=2, lower=0, testval=2.5)
-        beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0, testval=0.5)
+        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=3, lower=0.01, testval=4)
+        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=2, lower=0.01, testval=2.5)
+        beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
         mu_s = forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit_range=fit_range)
-
-        mu_b = pm.Uniform('mu_b', shape=len(off_data), lower=0, upper=2 * np.max(off_data))
+        
+        if model_type == 'full':
+            print('Sampling full likelihood')
+            mu_b = pm.Uniform('mu_b', shape=len(off_data), lower=0, upper=2 * np.max(off_data))
+        else:
+            print('Sampling profile likelihood')
+            mu_b  = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio), )
 
         b = pm.Poisson('background', mu=mu_b, observed=off_data)    
         s = pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b, observed=on_data)
-
+    
+    print('Model debug information:')
+    for RV in model.basic_RVs:
+        print(RV.name, RV.logp(model.test_point))
+    
     print('Plotting Landscape')
     plot_landscape(model, output_dir, mu_seed = interval_transform(off_data + 0.005, 0, b=2*np.max(off_data)))
     
-    print('Fitting Map')
-    map_estimate = pm.find_MAP(model=model, start={'amplitude': 4.0})
-    print(map_estimate)
-
     print('Sampling Posterior')
     with model:
         trace = pm.sample(n_samples, chains=n_cores, cores=n_cores, init='auto', target_accept=target_accept, tune=n_tune)
 
-
+    print(f'Fit results for {telescope}')
     print(trace['amplitude'].mean(), trace['alpha'].mean(), trace['beta'].mean())
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))
 
@@ -233,10 +251,11 @@ def fit(input_dir, telescope, output_dir, n_samples, n_tune, target_accept, n_co
     plt.figure()
     pm.traceplot(trace)
     plt.savefig(f'{output_dir}/traces.pdf')
-
-    print('Saving traces')
+    
+    trace_output = os.path.join(output_dir, 'traces')
+    print(f'Saving traces to {trace_output}')
     with model:
-        pm.save_trace(trace, os.path.join(output_dir, 'traces'), overwrite=True)
+        pm.save_trace(trace, trace_output, overwrite=True)
         
 if __name__ == '__main__':
     fit()
