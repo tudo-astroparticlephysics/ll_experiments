@@ -2,19 +2,21 @@ datasets:
   - name: 'magic'
     on_radius: 0.141
     containment_correction: False
-    bins_per_decade: 15
+    bins_per_decade: 18 # bins per decade
 
   - name: 'fact'
     on_radius: 0.17
     containment_correction: False
-    bins_per_decade: 15
-      
+    bins_per_decade: 12
+    stack: True
+
   - name: 'veritas'
     on_radius: 0.10
     containment_correction: False
-    bins_per_decade: 15
+    bins_per_decade: 18
+    stack: True
 
   - name: 'hess'
     on_radius: 0.11
     containment_correction: True
-    bins_per_decade: 15
+    bins_per_decade: 18

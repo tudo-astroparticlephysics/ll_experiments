@@ -33,17 +33,17 @@ class Integrate(theano.Op):
             self._expr,
             on_unused_input='ignore'
         )
-    
+
     def make_node(self, *inputs):
         assert len(self._extra_vars)  == len(inputs)
         return theano.Apply(self, list(inputs), [T.dscalar().type()])
-    
+
     def perform(self, node, inputs, out):
         x = np.linspace(self.lower, self.upper, num=3)
         y = np.array([self._func(i , *inputs) for i in x])
         val = trapz(y, x)
         out[0][0] = np.array(val)
-        
+
     def grad(self, inputs, grads):
         out, = grads
         grads = T.grad(self._expr, self._extra_vars)
@@ -52,11 +52,8 @@ class Integrate(theano.Op):
             integrate = Integrate(grad, self._var, self.lower, self.upper, *self._extra_vars)
             darg = out * integrate(*inputs)
             dargs.append(darg)
-            
+
         return dargs
-
-
-# In[3]:
 
 
 def apply_range(*arr, fit_range, bins):
@@ -64,19 +61,16 @@ def apply_range(*arr, fit_range, bins):
     return [a[idx[0]:idx[1]] for a in arr]
 
 
-# In[26]:
-
-
 def forward_fold_log_parabola_symbolic_no_units(amplitude, alpha, beta, e_true_lo, e_true_hi, selected_bin_ids, aeff, livetime, edisp, observation):
     amplitude *= 1e-11
-    
+
     energy = T.dscalar('energy')
     amplitude_ = T.dscalar('amplitude_')
     alpha_ = T.dscalar('alpha_')
     beta_ = T.dscalar('beta_')
 
     func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
-    
+
     counts = []
     for a, b in zip(e_true_lo, e_true_hi):
         c = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)(amplitude, alpha, beta)
@@ -84,19 +78,19 @@ def forward_fold_log_parabola_symbolic_no_units(amplitude, alpha, beta, e_true_l
 
     counts = T.stack(counts)
     aeff = aeff
-    
+
 
     counts *= aeff
     counts *= livetime
     edisp = edisp
-    
+
     idx = selected_bin_ids
     return T.dot(counts, edisp)[idx[0]:idx[1]]
 
 def forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit_range=None):
-    
+
     amplitude *= 1e-11
-    
+
     predicted_signal_per_observation = []
     for observation in observations:
         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
@@ -151,7 +145,7 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
 def get_observed_counts(observations, fit_range=None):
     on_data = []
     off_data = []
-    
+
     for observation in observations:
         on_data.append(observation.on_vector.data.data.value)
         off_data.append(observation.off_vector.data.data.value)
@@ -160,7 +154,7 @@ def get_observed_counts(observations, fit_range=None):
     if fit_range is not None:
         energy_bins = observations[0].on_vector.energy.bins
         on_data, off_data = apply_range(on_data, off_data, fit_range=fit_range, bins=energy_bins)
-    
+
     return on_data, off_data
 
 
@@ -178,16 +172,16 @@ def load_spectrum_observations(input_dir, name):
             spectra_path = os.path.join(input_dir, n)
             spec_obs = SpectrumObservationList.read(spectra_path)
             spec_obs_list.extend(spec_obs)
-            
+
     else:
         spectra_path = os.path.join(input_dir, name)
         spec_obs_list = SpectrumObservationList.read(spectra_path)
 
     return spec_obs_list
-    
+
 
 fit_ranges = {'fact': [0.4, 30] * u.TeV, 'magic': [0.08, 30] * u.TeV, 'hess': [0.8, 30] * u.TeV, 'veritas': [0.16, 30] * u.TeV}
-    
+
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas']))
@@ -197,10 +191,10 @@ fit_ranges = {'fact': [0.4, 30] * u.TeV, 'magic': [0.08, 30] * u.TeV, 'hess': [0
 @click.option('--n_tune', default=600)
 @click.option('--target_accept', default=0.8)
 @click.option('--n_cores', default=6)
-def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_accept, n_cores):
-    obs_list = load_spectrum_observations(input_dir, telescope)
+def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_accept, n_cores,):
+    observations = load_spectrum_observations(input_dir, telescope)
     fit_range = fit_ranges[telescope]
-    observations = obs_list
+
     energy_bins = observations[0].on_vector.energy.bins
 
     on_data, off_data = get_observed_counts(observations, fit_range=fit_range)
@@ -214,25 +208,31 @@ def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_
     print(fit_range)
     print(len(on_data))
     print(on_data.sum())
-    
+
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
-
         amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=0.5, lower=0.01, testval=4)
         alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=0.5, lower=0.01, testval=2.5)
         beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
         mu_s = forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit_range=fit_range)
 
-        mu_b  = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio), )
+        if model_type == 'wstat':
+            print('Building profiled likelihood model')
+            mu_b  = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
+        else:
+            print('Building full likelihood model')
+            mu_b = pm.TruncatedNormal('mu_b', lower=0, shape=len(off_data), mu=off_data, sd=5)
 
-        b = pm.Poisson('background', mu=mu_b, observed=off_data, shape=len(off_data))    
+        b = pm.Poisson('background', mu=mu_b, observed=off_data, shape=len(off_data))
         s = pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b, observed=on_data, shape=len(on_data))
+
 
     print('--' * 30)
     print('Model debug information:')
     for RV in model.basic_RVs:
         print(RV.name, RV.logp(model.test_point))
+
 
     print('--' * 30)
     print('Plotting landscape:')
@@ -244,7 +244,7 @@ def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_
     a, b = np.meshgrid(alphas, betas)
     for al, be in tqdm(zip(a.ravel(), b.ravel())):
 
-        p = f(amplitude_lowerbound__ = np.log(4), alpha_lowerbound__ = np.log(al), beta_lowerbound__= np.log(be))
+        p = f(amplitude_lowerbound__ = np.log(4), alpha_lowerbound__ = np.log(al), beta_lowerbound__= np.log(be), mu_b_lowerbound__=np.log(off_data))
         zs.append(p)
 
     zs = np.array(zs)
@@ -255,7 +255,7 @@ def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_
     ax1.set_ylabel('beta')
     plt.colorbar(cf, ax=ax1)
     plt.savefig(f'{output_dir}/landscape.pdf')
-    
+
     print('--' * 30)
     print('Sampling likelihood:')
     with model:
@@ -265,18 +265,18 @@ def fit(input_dir, telescope, output_dir, model_type, n_samples, n_tune, target_
     print(f'Fit results for {telescope}')
     print(trace['amplitude'].mean(), trace['alpha'].mean(), trace['beta'].mean())
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))
-    
+
     print('--' * 30)
     print('Plotting traces')
     plt.figure()
     pm.traceplot(trace)
     plt.savefig(f'{output_dir}/traces.pdf')
-    
+
     trace_output = os.path.join(output_dir, 'traces')
     print(f'Saving traces to {trace_output}')
     with model:
         pm.save_trace(trace, trace_output, overwrite=True)
-        
-        
+
+
 if __name__ == '__main__':
     fit()
