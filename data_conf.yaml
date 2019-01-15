@@ -3,20 +3,24 @@ datasets:
     on_radius: 0.141
     containment_correction: False
     bins_per_decade: 14 # bins per decade
+    fit_range: [0.08, 30]
 
   - name: 'fact'
     on_radius: 0.17
     containment_correction: False
     bins_per_decade: 14
     stack: True
+    fit_range: [0.4, 30]
 
   - name: 'veritas'
     on_radius: 0.10
     containment_correction: False
     bins_per_decade: 14
     stack: True
+    fit_range: [0.16, 30]
 
   - name: 'hess'
     on_radius: 0.11
     containment_correction: True
     bins_per_decade: 14
+    fit_range: [0.8, 30]

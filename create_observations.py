@@ -18,8 +18,6 @@ from regions import CircleSkyRegion
 
 
 
-
-
 crab_position = SkyCoord(ra='83d37m59.0988s', dec='22d00m52.2s')
 exclusion_map = Map.read(f"./data/exclusion_mask.fits.gz")
 
@@ -75,6 +73,7 @@ def config(config_file):
                 'containment_correction': tel_config['containment_correction'],
                 'stack': tel_config.get('stack', False),
                 'bins': create_energy_bins(tel_config),
+                'fit_range': tel_config['fit_range'] * u.TeV,
             }
 
             yield d
@@ -98,11 +97,26 @@ def plot_counts(output_path, extracted_data, name):
     plt.savefig(os.path.join(output_path, 'counts.pdf'))
 
 
+def add_meta_information(observations, telescope, dataset_config):
+    lo, hi = dataset_config['fit_range'].to_value('TeV')
+    for obs in observations:
+        obs.meta['TELESCOP'] = telescope
+        obs.meta['TEL'] = telescope
+        obs.meta['LO_THRES'] = lo
+        obs.meta['HI_THRES'] = hi
+
+        obs.aeff.meta['TELESCOP'] = telescope
+        obs.aeff.meta['TEL'] = telescope
+        obs.aeff.meta['LO_THRES'] = lo
+        obs.aeff.meta['HI_THRES'] = hi
+
+
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('config_file',type=click.Path(dir_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True))
-def extract(input_dir, config_file, output_dir):
+@click.option('-t', '--tel', default=None)
+def extract(input_dir, config_file, output_dir, tel):
     '''
     Provide the input_dir to the folder containing the subfolders for
     each speerate telescopes.
@@ -110,6 +124,9 @@ def extract(input_dir, config_file, output_dir):
 
     for dataset_config in config(config_file):
         telescope = dataset_config['telescope']
+        if tel is not None and tel != telescope:
+            continue
+
         on_radius = dataset_config['on_radius']
         stack = dataset_config['stack']
         print(f'Extracting data for {telescope} with radius {on_radius}. Stacking: {stack}')
@@ -122,9 +139,12 @@ def extract(input_dir, config_file, output_dir):
         if stack:
             print('Stacking observations')
             obs = extracted_data.observations.stack()
+
             # we are writing a single observation, as for Fermi
+            add_meta_information([obs], telescope, dataset_config)
             obs.write(output_path, use_sherpa=True, overwrite=True)
         else:
+            add_meta_information(extracted_data.observations, telescope, dataset_config)
             extracted_data.write(output_path, ogipdir="", use_sherpa=True, overwrite=True)
         plot_counts(output_path, extracted_data, telescope)
 
