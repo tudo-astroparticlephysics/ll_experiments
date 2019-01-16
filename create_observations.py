@@ -135,7 +135,7 @@ def extract(input_dir, config_file, output_dir, tel):
         output_path = os.path.join(output_dir, telescope)
         os.makedirs(output_path, exist_ok=True)
 
-        print(f'Writing data for {telescope} to {output_dir}/{telescope}')
+        print(f'Writing data for {telescope} to {os.path.join(output_dir, telescope)}')
         if stack:
             print('Stacking observations')
             obs = extracted_data.observations.stack()

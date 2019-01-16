@@ -1,6 +1,7 @@
 import os
 from astropy.io import fits
 from gammapy.spectrum import SpectrumObservationList
+import glob
 
 
 def load_spectrum_observations(input_dir, joint=False):
@@ -20,16 +21,18 @@ def load_spectrum_observations(input_dir, joint=False):
     else:
         spec_obs_list = SpectrumObservationList.read(input_dir)
 
-    hdu_list =  fits.open(os.path.join(input_dir, 'pha_stacked.fits') )
-    h = hdu_list[1].header
 
-    lo = h['LO_THRES']
-    hi = h['HI_THRES']
-    tel = h['TELESCOP']
+    for path in glob.glob(f'{input_dir}/pha*.fits'):
+        hdu_list =  fits.open(path)
+        h = hdu_list[1].header
 
-    for obs in spec_obs_list:
-        obs.meta['LO_THRES'] = lo
-        obs.meta['HI_THRES'] = hi
-        obs.meta['TELESCOP'] = tel
+        lo = h['LO_THRES']
+        hi = h['HI_THRES']
+        tel = h['TELESCOP']
+
+        for obs in spec_obs_list:
+            obs.meta['LO_THRES'] = lo
+            obs.meta['HI_THRES'] = hi
+            obs.meta['TELESCOP'] = tel
 
     return spec_obs_list, tel
