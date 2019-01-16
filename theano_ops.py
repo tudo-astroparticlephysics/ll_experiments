@@ -29,7 +29,7 @@ class Integrate(theano.Op):
 
     def perform(self, node, inputs, out):
         x = self.xs
-        y = np.array([self._func(i , *inputs) for i in x])
+        y = [self._func(i , *inputs) for i in x]
         val = trapz(y, x)
         out[0][0] = np.array(val)
 

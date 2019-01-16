@@ -154,8 +154,8 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
 
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
-        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=0.5, lower=0.01, testval=4)
-        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=0.5, lower=0.01, testval=2.5)
+        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
+        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.01, testval=2.5)
         beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
         mu_s = forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations)
