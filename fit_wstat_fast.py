@@ -14,21 +14,20 @@ from tqdm import tqdm
 
 from gammapy.spectrum import CountsPredictor, CountsSpectrum, SpectrumObservationList
 from spectrum_io import load_spectrum_observations
-from theano_ops import Integrate
+from theano_ops import Integrate, IntegrateVectorized
 from plots import plot_landscape
 
 import click
 import os
 import shutil
-from functools import lru_cache
+# from functools import lru_cache
 
 def apply_range(*arr, fit_range, bins):
     idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to(u.TeV).value )
     return [a[idx[0]:idx[1]] for a in arr]
 
 
-@lru_cache(maxsize=5000)
-def get_integrator(a, b):
+def init_integrators(observations):
     energy = T.dscalar('energy')
     amplitude_ = T.dscalar('amplitude_')
     alpha_ = T.dscalar('alpha_')
@@ -36,15 +35,31 @@ def get_integrator(a, b):
 
     func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
 
-    return Integrate(func, energy, a, b, amplitude_, alpha_, beta_)
+    observation = observations[0]
+    obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
+
+    aeff_bins = observation.aeff.energy
+    e_reco_bins = observation.edisp.e_reco
+    e_true_bins = observation.edisp.e_true
+
+    bins  = e_true_bins.bins.to_value(u.TeV)
+    return IntegrateVectorized(func, energy, bins, amplitude_, alpha_, beta_)
+    # lower =  e_true_bins.lo.to_value(u.TeV)
+    # upper = e_true_bins.hi.to_value(u.TeV)
+    #
+    # d = {}
+    # for a, b in zip(lower, upper):
+    #     d[(a, b)] = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)
+    #
+    # return d
 
 
-def forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit_range=None):
+def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
 
     amplitude *= 1e-11
     if not fit_range:
-        lo = observations[0].meta['LO_THRES']
-        hi = observations[0].meta['HI_THRES']
+        lo = observations[0].meta['LO_RANGE']
+        hi = observations[0].meta['HI_RANGE']
         fit_range = [lo, hi] * u.TeV
 
     predicted_signal_per_observation = []
@@ -55,17 +70,20 @@ def forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations, fit
         e_reco_bins = observation.edisp.e_reco
         e_true_bins = observation.edisp.e_true
 
-        lower =  e_true_bins.lo.to_value(u.TeV)
-        upper = e_true_bins.hi.to_value(u.TeV)
+        # lower =  e_true_bins.lo.to_value(u.TeV)
+        # upper = e_true_bins.hi.to_value(u.TeV)
+        bins = e_true_bins.bins.to_value(u.TeV)
 
+        counts = integrator(amplitude, alpha, beta)
 
-        counts = []
-        for a, b in zip(lower, upper):
-            # c = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)(amplitude, alpha, beta)
-            c = get_integrator(a, b)(amplitude, alpha, beta)
-            counts.append(c)
+        # counts = []
+        # for a, b in zip(lower, upper):
+        #     # c = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)(amplitude, alpha, beta)
+        #     c = integrator_dict[(a, b)](amplitude, alpha, beta)
+        #     counts.append(c)
+        # print(counts)
+        # counts = T.stack(counts, axis=0)
 
-        counts = T.stack(counts)
         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
         aeff = aeff
 
@@ -103,8 +121,8 @@ def get_observed_counts(observations, fit_range=None):
     off_data = []
 
     for observation in observations:
-        lo = observation.meta['LO_THRES']
-        hi = observation.meta['HI_THRES']
+        lo = observation.meta['LO_RANGE']
+        hi = observation.meta['HI_RANGE']
         fit_range = [lo, hi] * u.TeV
 
         on_data.append(observation.on_vector.data.data.value)
@@ -137,7 +155,8 @@ def prepare_output(output_dir):
 @click.option('--n_cores', default=6)
 @click.option('--joint', default=False, help='Use all datasets found in input dir')
 @click.option('--init', default='auto', help='Set pymc sampler init string.')
-def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_cores, joint, init,):
+@click.option('--profile/--no-profile', default=False, help='Output profiling information')
+def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_cores, joint, init, profile):
     observations, telescope = load_spectrum_observations(input_dir, joint=joint)
 
     prepare_output(output_dir)
@@ -147,10 +166,11 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
 
     on_data, off_data = get_observed_counts(observations)
 
+    integrator_dict = init_integrators(observations)
 
     print('--' * 30)
-    print('bins, total counts in on region and off_region:')
-    print(f'Fitting data for {telescope}.  ', len(on_data), on_data.sum(), off_data.sum())
+    print(f'Fitting data for {telescope} in {len(observations)} observations.  ')
+    print(f'Uinsg {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
 
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
@@ -158,7 +178,7 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
         alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.01, testval=2.5)
         beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
-        mu_s = forward_fold_log_parabola_symbolic(amplitude, alpha, beta, observations)
+        mu_s = forward_fold_log_parabola_symbolic(integrator_dict, amplitude, alpha, beta, observations)
 
         if model_type == 'wstat':
             print('Building profiled likelihood model')
@@ -175,6 +195,9 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
     print('Model debug information:')
     for RV in model.basic_RVs:
         print(RV.name, RV.logp(model.test_point))
+
+    if profile:
+        model.profile(model.logpt).summary()
 
     print('--' * 30)
     print('Plotting landscape:')

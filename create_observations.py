@@ -40,10 +40,10 @@ def create_data(input_dir, dataset_config):
     bkg_estimate.run()
 
     # for obs in observations:
-    #     if 'LO_THRESH' not in obs.aeff.meta:
-    #         obs.aeff.meta['LO_THRESH'] = energy_bins.min()
-    #     if 'HI_THRESH' not in obs.aeff.meta:
-    #         obs.aeff.meta['HI_THRESH'] = energy_bins.max()
+    #     if 'LO_RANGEH' not in obs.aeff.meta:
+    #         obs.aeff.meta['LO_RANGEH'] = energy_bins.min()
+    #     if 'HI_RANGEH' not in obs.aeff.meta:
+    #         obs.aeff.meta['HI_RANGEH'] = energy_bins.max()
 
     print('Extracting Count Spectra')
     extract = SpectrumExtraction(
@@ -100,10 +100,10 @@ def plot_counts(output_path, extracted_data, name):
 def add_meta_information(observations, telescope, dataset_config):
     lo, hi = dataset_config['fit_range'].to_value('TeV')
     for obs in observations:
-        obs.aeff.meta['TELESCOP'] = telescope
-        obs.aeff.meta['TEL'] = telescope
-        obs.aeff.meta['LO_THRES'] = lo
-        obs.aeff.meta['HI_THRES'] = hi
+        obs.meta['TELESCOP'] = telescope
+        obs.meta['TEL'] = telescope
+        obs.meta['LO_RANGE'] = lo
+        obs.meta['HI_RANGE'] = hi
 
 
 @click.command()
