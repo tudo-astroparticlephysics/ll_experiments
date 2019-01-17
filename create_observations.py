@@ -29,13 +29,13 @@ def create_data(input_dir, dataset_config):
     containment = dataset_config['containment_correction']
 
     ds = DataStore.from_dir(os.path.join(input_dir, telescope))
-    observations = ds.obs_list(ds.hdu_table['OBS_ID'].data)
+    observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
 
     on_region = CircleSkyRegion(center=crab_position, radius=on_region_radius)
 
     print('Estimating Background')
     bkg_estimate = ReflectedRegionsBackgroundEstimator(
-        obs_list=observations, on_region=on_region, exclusion_mask=exclusion_map
+        observations=observations, on_region=on_region, exclusion_mask=exclusion_map
     )
     bkg_estimate.run()
 
@@ -47,7 +47,7 @@ def create_data(input_dir, dataset_config):
 
     print('Extracting Count Spectra')
     extract = SpectrumExtraction(
-        obs_list=observations,
+        observations=observations,
         bkg_estimate=bkg_estimate.result,
         e_true=energy_bins,
         e_reco=energy_bins,
@@ -81,12 +81,12 @@ def config(config_file):
 
 def plot_counts(output_path, extracted_data, name):
     counts = []
-    for obs in extracted_data.observations:
+    for obs in extracted_data.spectrum_observations:
         c = obs.on_vector.counts_in_safe_range.value
         counts.append(c)
 
     counts = np.sum(counts, axis=0)
-    x = extracted_data.observations[0].e_reco.lower_bounds.to_value('TeV')
+    x = extracted_data.spectrum_observations[0].e_reco.lower_bounds.to_value('TeV')
 
     plt.title(f'Count Spectrum for {name} telescope.')
     plt.suptitle(f'total counts: {counts.sum()}')
@@ -100,11 +100,6 @@ def plot_counts(output_path, extracted_data, name):
 def add_meta_information(observations, telescope, dataset_config):
     lo, hi = dataset_config['fit_range'].to_value('TeV')
     for obs in observations:
-        obs.meta['TELESCOP'] = telescope
-        obs.meta['TEL'] = telescope
-        obs.meta['LO_THRES'] = lo
-        obs.meta['HI_THRES'] = hi
-
         obs.aeff.meta['TELESCOP'] = telescope
         obs.aeff.meta['TEL'] = telescope
         obs.aeff.meta['LO_THRES'] = lo
@@ -138,13 +133,12 @@ def extract(input_dir, config_file, output_dir, tel):
         print(f'Writing data for {telescope} to {os.path.join(output_dir, telescope)}')
         if stack:
             print('Stacking observations')
-            obs = extracted_data.observations.stack()
-
+            obs = extracted_data.spectrum_observations.stack()
             # we are writing a single observation, as for Fermi
             add_meta_information([obs], telescope, dataset_config)
             obs.write(output_path, use_sherpa=True, overwrite=True)
         else:
-            add_meta_information(extracted_data.observations, telescope, dataset_config)
+            add_meta_information(extracted_data.spectrum_observations, telescope, dataset_config)
             extracted_data.write(output_path, ogipdir="", use_sherpa=True, overwrite=True)
         plot_counts(output_path, extracted_data, telescope)
 

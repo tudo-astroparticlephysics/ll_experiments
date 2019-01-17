@@ -22,5 +22,5 @@ datasets:
   - name: 'hess'
     on_radius: 0.11
     containment_correction: True
-    bins_per_decade: 14
+    bins_per_decade: 18
     fit_range: [0.8, 30]

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-
+from matplotlib.colors import LogNorm
 
 def plot_landscape(model, off_data):
     N = 25
@@ -22,9 +22,15 @@ def plot_landscape(model, off_data):
 
     zs = np.array(zs)
 
-    fig, ax = plt.subplots(1, 1, figsize=(6, 5.5))
-    cf = ax.contourf(a, b, zs.reshape(len(a), -1),  levels=124)
-    ax.set_xlabel('alpha')
-    ax.set_ylabel('beta')
-    fig.colorbar(cf, ax=ax)
-    return fig, ax
+    fig, [ax1, ax2] = plt.subplots(1, 2, figsize=(12, 6))
+    cf = ax1.contourf(a, b, zs.reshape(len(a), -1),  levels=100)
+    ax1.set_xlabel('alpha')
+    ax1.set_ylabel('beta')
+    fig.colorbar(cf, ax=ax1)
+
+    cf = ax2.contourf(a, b, np.log10(-zs.reshape(len(a), -1)),  levels=255, )
+    ax2.set_xlabel('alpha')
+    ax2.set_ylabel('beta')
+    fig.colorbar(cf, ax=ax2)
+
+    return fig, [ax1, ax2]
