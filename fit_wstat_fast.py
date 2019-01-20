@@ -1,7 +1,4 @@
-from scipy.integrate import quad, trapz, fixed_quad
-import theano
 import theano.tensor as T
-from theano.compile.ops import as_op
 
 import numpy as np
 import pymc3 as pm
@@ -9,12 +6,9 @@ import pymc3 as pm
 import matplotlib.pyplot as plt
 
 import astropy.units as u
-from astropy.io import fits
-from tqdm import tqdm
 
-from gammapy.spectrum import CountsPredictor, CountsSpectrum, SpectrumObservationList
 from spectrum_io import load_spectrum_observations
-from theano_ops import Integrate, IntegrateVectorized
+from theano_ops import IntegrateVectorized
 from plots import plot_landscape
 
 import click
@@ -36,10 +30,6 @@ def init_integrators(observations):
     func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
 
     observation = observations[0]
-    obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-
-    aeff_bins = observation.aeff.energy
-    e_reco_bins = observation.edisp.e_reco
     e_true_bins = observation.edisp.e_true
 
     bins  = e_true_bins.bins.to_value(u.TeV)
@@ -66,13 +56,10 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     for observation in observations:
         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
 
-        aeff_bins = observation.aeff.energy
-        e_reco_bins = observation.edisp.e_reco
-        e_true_bins = observation.edisp.e_true
+        # e_true_bins = observation.edisp.e_true
 
         # lower =  e_true_bins.lo.to_value(u.TeV)
         # upper = e_true_bins.hi.to_value(u.TeV)
-        bins = e_true_bins.bins.to_value(u.TeV)
 
         counts = integrator(amplitude, alpha, beta)
 
@@ -187,8 +174,8 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
             print('Building full likelihood model')
             mu_b = pm.TruncatedNormal('mu_b', lower=0, shape=len(off_data), mu=off_data, sd=5)
 
-        b = pm.Poisson('background', mu=mu_b, observed=off_data, shape=len(off_data))
-        s = pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b, observed=on_data, shape=len(on_data))
+        pm.Poisson('background', mu=mu_b, observed=off_data, shape=len(off_data))
+        pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b, observed=on_data, shape=len(on_data))
 
 
     print('--' * 30)

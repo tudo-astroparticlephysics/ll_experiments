@@ -1,0 +1,98 @@
+f(E, phi, alpha, beta):=phi*E^(-alpha-beta*log(E)/log(10))$
+
+print(ev(f(2, 4, 2.5, 0.4), numer));
+
+assume (E > 0, alpha > 0, beta > 0, E_min > 0, E_max > 0, E_max > E_min)$
+F(E):=integrate(f(E, phi, alpha, beta), E, 0, E_max) - integrate(f(E, phi, alpha, beta), E, 0, E_min) ;
+dalpha():=diff(F(E),alpha)$
+dbeta():=diff(F(E),beta)$
+dphi():=diff(F(E), phi)$
+
+/*
+replacenp(expr) :=
+  block ( [],
+           (
+           k1: ratsubst(l5, log(5), radcan(expr)),
+           k2: ratsubst(l2, log(2), k1),
+           s1: ssubst("np.sqrt", "sqrt", string(k2)),
+           s2: ssubst("np.log", "log", s1),
+           s3: ssubst("np.exp", "%e^", s2),
+           s4: ssubst("**", "^", s3),
+           s5: ssubst("np.pi", "%pi", s4)
+           )
+        )$
+
+replacett(expr) :=
+  block ( [],
+           (
+           k1: ratsubst(l5, log(5), radcan(expr)),
+           k2: ratsubst(l2, log(2), k1),
+           s1: ssubst("T.sqrt", "sqrt", string(k2)),
+           s2: ssubst("T.log", "log", s1),
+           s3: ssubst("T.exp", "%e^", s2),
+           s4: ssubst("**", "^", s3),
+           s5: ssubst("3.14159265", "%pi", s4)
+           s6: ssubst("T.erf", "erf", s5),
+           )
+        )$
+
+
+ldef : "~2tl2 = np.log(2) ~% ~2tl5 = np.log(5) ~%"$
+
+s: openw("symbolic_gradients.py")$
+
+out: "import numpy as np~%
+import theano.tensor as T
+
+def erf(x):
+  '''
+  See this post :
+  https://stackoverflow.com/questions/457408/is-there-an-easily-available-implementation-of-erf-for-python
+  '''
+  # save the sign of x
+  sign = np.sign(x)
+  x = abs(x)
+
+  # constants
+  a1 =  0.254829592
+  a2 = -0.284496736
+  a3 =  1.421413741
+  a4 = -1.453152027
+  a5 =  1.061405429
+  p  =  0.3275911
+
+  # A&S formula 7.1.26
+  t = 1.0/(1.0 + p*x)
+  y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*np.exp(-x*x)
+  return sign*y # erf(-x) = -erf(x)~%
+"$
+printf(s, out)$
+
+out: replacenp(f(E, phi, alpha, beta))$
+model_string: concat("def logpar(E, phi, alpha, beta): ~%", "~2tres=", out, "~% ~2treturn res")$
+printf(s, model_string)$
+printf(s, "~% ~%")$
+
+
+out: replacenp(F(E))$
+integral_string: concat("def logpar_integral(E_min, E_max, phi, alpha, beta): ~%", ldef, "~2tres=", out, "~% ~2treturn res")$
+printf(s, integral_string)$
+printf(s, "~% ~%")$
+
+out: replacett(dbeta())$
+dbeta_string: concat("def dbeta(E_min, E_max, phi, alpha, beta): ~%", ldef, "~2tdbeta=", out, "~% ~2treturn dbeta")$
+printf(s, dbeta_string)$
+printf(s, "~% ~%")$
+
+out: replacett(dalpha())$
+dalpha_string: concat("def dalpha(E_min, E_max, phi, alpha, beta): ~%", ldef, "~2tdalpha=", out, "~% ~2treturn dalpha")$
+printf(s, dalpha_string)$
+printf(s, "~% ~%")$
+
+out: replacett(dphi())$
+dphi_string: concat("def dphi(E_min, E_max, phi, alpha, beta): ~%", ldef, "~2tdphi=", out, "~% ~2treturn dphi")$
+printf(s, dphi_string)$
+
+
+close(s)$
+*/
