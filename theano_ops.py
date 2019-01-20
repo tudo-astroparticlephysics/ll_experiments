@@ -127,31 +127,59 @@ class IntegrateVectorized(theano.Op):
         self.lower = bins[0:-1]
         self.upper = bins[1:]
         self.bins = bins
-        self.xs = [np.linspace(a, b, num=4) for a, b in zip(self.lower, self.upper)]
-        self.delta_xs = [np.diff(x) for x in self.xs]
+        self.xs = np.array([np.linspace(a, b, num=4) for a, b in zip(self.lower, self.upper)])
+        self.delta_xs = np.array([np.diff(x) for x in self.xs])
 
 
     def make_node(self, *inputs):
         # assert len(self._extra_vars)  == len(inputs)
         return theano.Apply(self, list(inputs), [T.dvector().type()])
 
+#     def c_code(self, node, name, inames, onames, sub):
+#         print(name, inames, onames, sub, )
+#         x = inames
+#         y = onames
+#         fail = sub['fail']
+#         print('----'*30)
+#         print(locals())
+#         print('----'*30)
+#         return """
+# Py_XDECREF(%(y)s);
+# %(y)s = (PyArrayObject*)PyArray_FromArray(
+#             %(x)s, 0, NPY_ARRAY_ENSURECOPY);
+# if (!%(y)s)
+#   %(fail)s;
+# {//New scope needed to make compilation work
+#   dtype_%(y)s * y = (dtype_%(y)s*)PyArray_DATA(%(y)s);
+#   dtype_%(x)s * x = (dtype_%(x)s*)PyArray_DATA(%(x)s);
+#   for (int i = 2; i < PyArray_DIMS(%(x)s)[0]; ++i)
+#     y[i] = y[i-1]*y[i-2] + x[i];
+# }
+#         """ % locals()
+
+    def f(self, E, phi, alpha, beta):
+        return phi*E**(-alpha-beta*np.log10(E))
+
     def perform(self, node, inputs, out):
+        # vals = []
+        t = self.f(self.xs, *inputs)
+        v_vec = 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
 
-        vals = []
-        for i, (x, delta_x) in enumerate(zip(self.xs, self.delta_xs)):
-            y = np.array([self._func(i , *inputs) for i in x])
-
-            v = 0.5 * np.sum((y[0:-1] + y[1:])*delta_x)
-            # v = trapz(y, x)
-            # print(v, trapz(y, x))
-            vals.append(v)
-
-        # print(np.array(inputs), self.lower, self.upper)
-        vals  = np.array(vals)
+        # for i, (x, delta_x) in enumerate(zip(self.xs, self.delta_xs)):
+        #     y = np.array([self._func(i , *inputs) for i in x])
+        #
+        #     v = 0.5 * np.sum((y[0:-1] + y[1:])*delta_x)
+        #     # v = trapz(y, x)
+        #     # print(v, trapz(y, x))
+        #     vals.append(v)
+        #
+        # # print(np.array(inputs), self.lower, self.upper)
+        # vals  = np.array(vals)
+        # from IPython import embed; embed()
         # res = logpar_integral(self.lower, self.upper, *np.array(inputs))
         # print(res.shape, vals.shape)
         # vals = theano.map(lambda x: trapz([self._func(i , *inputs) for i in x], x), sequences=[self.xs, ])
-        out[0][0] = vals
+        out[0][0] = v_vec
 
     def L_op(self, inputs, output,  grads):
         if not hasattr(self, 'precomputed_grads'):
@@ -302,25 +330,25 @@ if __name__ == '__main__':
 
     # sys.exit()
 
-    print('Calculating Integral analytically.')
-    integrator = IntegrateLogParabolaAnalytically(energy, bins, amplitude_, alpha_, beta_)
-
-    print(f'Measuring {N} calls of eval')
-    t0 = time.time()
-    for i in np.linspace(1, 4, N):
-        result_analytical = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: i, beta: 0.5})
-    t1 = time.time()
-    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
-
-    print(f'Measuring {N} calls of grad')
-    integrator =  IntegrateLogParabolaAnalytically(energy, bins, amplitude_, alpha_, beta_)
-    T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    t0 = time.time()
-    for i in range(N):
-        T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    t1 = time.time()
-    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
-    print('--'*30)
+    # print('Calculating Integral analytically.')
+    # integrator = IntegrateLogParabolaAnalytically(energy, bins, amplitude_, alpha_, beta_)
+    #
+    # print(f'Measuring {N} calls of eval')
+    # t0 = time.time()
+    # for i in np.linspace(1, 4, N):
+    #     result_analytical = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: i, beta: 0.5})
+    # t1 = time.time()
+    # print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
+    #
+    # print(f'Measuring {N} calls of grad')
+    # integrator =  IntegrateLogParabolaAnalytically(energy, bins, amplitude_, alpha_, beta_)
+    # T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # t0 = time.time()
+    # for i in range(N):
+    #     T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # t1 = time.time()
+    # print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
+    # print('--'*30)
 
     # print('Calculating Integral piecewise.')
     # integrator = Integrate(func, energy, bins[0], bins[1], amplitude_, alpha_, beta_)
