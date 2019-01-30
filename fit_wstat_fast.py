@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 
 from spectrum_io import load_spectrum_observations
-from theano_ops import IntegrateVectorized
+from theano_ops import IntegrateVectorized, IntegrateVectorizedOld
 from plots import plot_landscape
 
 import click
@@ -27,13 +27,24 @@ def init_integrators(observations):
     alpha_ = T.dscalar('alpha_')
     beta_ = T.dscalar('beta_')
 
-    func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
+    def f(self, E, phi, alpha, beta):
+        return phi*E**(-alpha-beta*np.log10(E))
 
-    observation = observations[0]
-    e_true_bins = observation.edisp.e_true
+    def df_dphi(self, E, phi, alpha, beta):
+        return E**(-alpha-beta*np.log10(E))
 
+    def df_dalpha(self, E, phi, alpha, beta):
+        return -phi*E**(-alpha-beta*np.log10(E)) * np.log(E)
+
+    def df_dbeta(self, E, phi, alpha, beta):
+        return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
+
+    # func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
+    #
+    # observation = observations[0]
+    e_true_bins = observations[0].edisp.e_true
     bins  = e_true_bins.bins.to_value(u.TeV)
-    return IntegrateVectorized(func, energy, bins, amplitude_, alpha_, beta_)
+    return IntegrateVectorized(f,[df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
     # lower =  e_true_bins.lo.to_value(u.TeV)
     # upper = e_true_bins.hi.to_value(u.TeV)
     #
@@ -100,6 +111,10 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
     d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
     mu_b = (c + d) / (2*alpha*(alpha + 1))
 
+    # from IPython import embed; embed()
+    # mu_b[on_data == 0] = off_data/(alpha + 1)
+    mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
+    mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
     return mu_b
 
 

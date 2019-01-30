@@ -68,43 +68,25 @@ class IntegrateVectorized(theano.Op):
     A numerical integration routine using theano. This is very fragile code.
     Not only because theano is in low power maintenance mode.
     '''
-    def __init__(self, expr, var, bins,  *inputs, name=None, num_nodes=4):
+    def __init__(self, f, gradients_of_f, var, bins,  *inputs, num_nodes=4):
         super().__init__()
-        self._expr = expr
+        self.f = f
+        self.gradients_of_f = gradients_of_f
+
         self._var = var
         self._extra_vars = inputs
-        self._func = theano.function(
-            [var] + list(self._extra_vars),
-            self._expr,
-            on_unused_input='ignore'
-        )
-        self._name = name
-        self.lower = bins[0:-1]
-        self.upper = bins[1:]
-        self.bins = bins
-        self.xs = np.array([np.linspace(a, b, num=num_nodes) for a, b in zip(self.lower, self.upper)])
+
+        lower = bins[0:-1]
+        upper = bins[1:]
+        self.xs = np.array([np.linspace(a, b, num=num_nodes) for a, b in zip(lower, upper)])
         self.delta_xs = np.array([np.diff(x) for x in self.xs])
 
 
     def make_node(self, *inputs):
-        # assert len(self._extra_vars)  == len(inputs)
         return theano.Apply(self, list(inputs), [T.dvector().type()])
 
-    def f(self, E, phi, alpha, beta):
-        return phi*E**(-alpha-beta*np.log10(E))
-
-    def df_dphi(self, E, phi, alpha, beta):
-        return E**(-alpha-beta*np.log10(E))
-
-    def df_dalpha(self, E, phi, alpha, beta):
-        return -phi*E**(-alpha-beta*np.log10(E)) * np.log(E)
-
-    def df_dbeta(self, E, phi, alpha, beta):
-        return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
-
-
     def perform(self, node, inputs, out):
-        t = self.f(self.xs, *inputs)
+        t = self.f(self, self.xs, *inputs)
         out[0][0] = self.trapz(t)
 
     def trapz(self, t):
@@ -119,17 +101,10 @@ class IntegrateVectorized(theano.Op):
 
         dargs = []
 
-        t = self.df_dphi(self.xs, *inputs)
-        darg = T.dot(out,  self.trapz_theano(t))
-        dargs.append(darg)
-
-        t = self.df_dalpha(self.xs, *inputs)
-        darg = T.dot(out,  self.trapz_theano(t))
-        dargs.append(darg)
-
-        t = self.df_dbeta(self.xs, *inputs)
-        darg = T.dot(out,  self.trapz_theano(t))
-        dargs.append(darg)
+        for gradient in self.gradients_of_f:
+            t = gradient(self, self.xs, *inputs)
+            darg = T.dot(out,  self.trapz_theano(t))
+            dargs.append(darg)
 
         return dargs
 
@@ -141,6 +116,19 @@ if __name__ == '__main__':
     N = 100
     if len(sys.argv) == 2:
         N = int(sys.argv[1])
+
+
+    def f(self, E, phi, alpha, beta):
+        return phi*E**(-alpha-beta*np.log10(E))
+
+    def df_dphi(self, E, phi, alpha, beta):
+        return E**(-alpha-beta*np.log10(E))
+
+    def df_dalpha(self, E, phi, alpha, beta):
+        return -phi*E**(-alpha-beta*np.log10(E)) * np.log(E)
+
+    def df_dbeta(self, E, phi, alpha, beta):
+        return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
 
 
     amplitude_ = T.dscalar('amplitude_')
@@ -158,9 +146,10 @@ if __name__ == '__main__':
     print('Integrating Vectorized')
     print(f'Measuring {N} calls of eval')
     energy = T.dscalar('energy')
-    func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
 
-    integrator = IntegrateVectorized(func, energy, bins, amplitude_, alpha_, beta_)
+
+    integrator = IntegrateVectorized(f,[df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
+
     t0 = time.time()
     for i in range(N):
         integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
@@ -169,7 +158,7 @@ if __name__ == '__main__':
     test_result = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
 
     print(f'Measuring {N} calls of jacobi')
-    integrator = IntegrateVectorized(func, energy, bins, amplitude_, alpha_, beta_)
+    integrator = IntegrateVectorized(f,[df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
     T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
     t0 = time.time()
     for i in range(N):
