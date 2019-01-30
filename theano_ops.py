@@ -41,7 +41,7 @@ class IntegrateVectorizedOld(theano.Op):
             # v = trapz(y, x)
             # print(v, trapz(y, x))
             vals.append(v)
-        #
+
         # # print(np.array(inputs), self.lower, self.upper)
         vals  = np.array(vals)
         # from IPython import embed; embed()
@@ -111,20 +111,39 @@ class IntegrateVectorized(theano.Op):
             t = self.df_dalpha(self.xs, *inputs)
         elif self._name == 'dbeta':
             t = self.df_dalpha(self.xs, *inputs)
-        # from IPython import embed; embed()
-        v_vec = 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
-        out[0][0] = v_vec
+
+        out[0][0] = self.trapz(t)
+
+    def trapz(self, t):
+        return 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
+
+    def trapz_theano(self, t):
+        return 0.5 * T.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
+
 
     def L_op(self, inputs, output,  output_grads):
-        if not hasattr(self, 'precomputed_grads'):
-            self.precomputed_grads = T.grad(self._expr, self._extra_vars)
+        # if not hasattr(self, 'precomputed_grads'):
+        #     self.precomputed_grads = T.grad(self._expr, self._extra_vars)
         out, = output_grads
 
         dargs = []
-        for grad, name in zip(self.precomputed_grads, ['dphi', 'dalpha', 'dbeta']):
-            integrate = IntegrateVectorized(grad, self._var, self.bins, *self._extra_vars, name=name)
-            darg = T.dot(out,  integrate(*inputs))
-            dargs.append(darg)
+        # for grad, name in zip(self.precomputed_grads, ['dphi', 'dalpha', 'dbeta']):
+        #     integrate = IntegrateVectorized(grad, self._var, self.bins, *self._extra_vars, name=name)
+        #     darg = T.dot(out,  integrate(*inputs))
+        #     dargs.append(darg)
+
+        t = self.df_dphi(self.xs, *inputs)
+        darg = T.dot(out,  self.trapz_theano(t))
+        dargs.append(darg)
+
+        t = self.df_dalpha(self.xs, *inputs)
+        darg = T.dot(out,  self.trapz_theano(t))
+        dargs.append(darg)
+
+        t = self.df_dbeta(self.xs, *inputs)
+        darg = T.dot(out,  self.trapz_theano(t))
+        dargs.append(darg)
+
         return dargs
 
 
@@ -274,7 +293,7 @@ if __name__ == '__main__':
     t1 = time.time()
 
     print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
-
+    test_result = T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
 
 
     print('--'*30)
@@ -299,3 +318,6 @@ if __name__ == '__main__':
     t1 = time.time()
 
     print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
+    old_test_result = T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+
+    np.allclose(test_result, old_test_result)
