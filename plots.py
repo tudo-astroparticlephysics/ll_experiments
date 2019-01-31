@@ -3,8 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from matplotlib.colors import LogNorm
 
-def plot_landscape(model, off_data):
-    N = 25
+def plot_landscape(model, off_data, N = 40):
     betas = np.linspace(0, 3, N)
     alphas = np.linspace(1.1, 4.0, N)
     f = model.logp
