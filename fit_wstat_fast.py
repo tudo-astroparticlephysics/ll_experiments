@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 
 from spectrum_io import load_spectrum_observations
-from theano_ops import IntegrateVectorized, IntegrateVectorizedOld
+from theano_ops import IntegrateVectorized
 from plots import plot_landscape
 
 import click
 import os
 import shutil
-# from functools import lru_cache
+
 
 def apply_range(*arr, fit_range, bins):
     idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to(u.TeV).value )
@@ -29,30 +29,16 @@ def init_integrators(observations):
 
     def f(self, E, phi, alpha, beta):
         return phi*E**(-alpha-beta*np.log10(E))
-
     def df_dphi(self, E, phi, alpha, beta):
         return E**(-alpha-beta*np.log10(E))
-
     def df_dalpha(self, E, phi, alpha, beta):
         return -phi*E**(-alpha-beta*np.log10(E)) * np.log(E)
-
     def df_dbeta(self, E, phi, alpha, beta):
         return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
 
-    # func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
-    #
-    # observation = observations[0]
     e_true_bins = observations[0].edisp.e_true
     bins  = e_true_bins.bins.to_value(u.TeV)
     return IntegrateVectorized(f,[df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
-    # lower =  e_true_bins.lo.to_value(u.TeV)
-    # upper = e_true_bins.hi.to_value(u.TeV)
-    #
-    # d = {}
-    # for a, b in zip(lower, upper):
-    #     d[(a, b)] = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)
-    #
-    # return d
 
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
@@ -74,22 +60,12 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
 
         counts = integrator(amplitude, alpha, beta)
 
-        # counts = []
-        # for a, b in zip(lower, upper):
-        #     # c = Integrate(func, energy, a, b, amplitude_, alpha_, beta_)(amplitude, alpha, beta)
-        #     c = integrator_dict[(a, b)](amplitude, alpha, beta)
-        #     counts.append(c)
-        # print(counts)
-        # counts = T.stack(counts, axis=0)
 
         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
-        aeff = aeff
-
 
         counts *= aeff
         counts *= observation.livetime.to_value(u.s)
         edisp = observation.edisp.pdf_matrix
-        edisp = edisp
 
         predicted_signal_per_observation.append(T.dot(counts, edisp))
 
@@ -111,8 +87,6 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
     d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
     mu_b = (c + d) / (2*alpha*(alpha + 1))
 
-    # from IPython import embed; embed()
-    # mu_b[on_data == 0] = off_data/(alpha + 1)
     mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
     mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
     return mu_b
@@ -150,16 +124,21 @@ def prepare_output(output_dir):
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True, file_okay=False))
+@click.argument('dataset', type=click.Choice(['hess', 'fact', 'magic', 'veritas', 'joint']))
 @click.option('--model_type', default='full', type=click.Choice(['full', 'profile', 'wstat']))
 @click.option('--n_samples', default=1000)
 @click.option('--n_tune', default=600)
 @click.option('--target_accept', default=0.8)
 @click.option('--n_cores', default=6)
-@click.option('--joint', default=False, help='Use all datasets found in input dir')
 @click.option('--init', default='auto', help='Set pymc sampler init string.')
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
-def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_cores, joint, init, profile):
-    observations, telescope = load_spectrum_observations(input_dir, joint=joint)
+def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, init, profile):
+
+    if dataset == 'joint':
+        observations, lo, hi = load_joint_spectrum_observation(input_dir)
+    else:
+        p = os.path.join(input_dir, dataset)
+        observations, lo, hi = load_spectrum_observations(p)
 
     prepare_output(output_dir)
 
@@ -171,9 +150,9 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
     integrator_dict = init_integrators(observations)
 
     print('--' * 30)
-    print(f'Fitting data for {telescope} in {len(observations)} observations.  ')
-    print(f'Uinsg {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
-
+    print(f'Fitting data for {dataset} in {len(observations)} observations.  ')
+    print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
+    print(f'Fit range is: {(lo, hi) * u.TeV}.  ')
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
         amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
@@ -212,7 +191,7 @@ def fit(input_dir, output_dir, model_type, n_samples, n_tune, target_accept, n_c
         trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init) # advi+adapt_diag
 
     print('--'*30)
-    print(f'Fit results for {telescope}')
+    print(f'Fit results for {dataset}')
     print(trace['amplitude'].mean(), trace['alpha'].mean(), trace['beta'].mean())
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))
 
