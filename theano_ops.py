@@ -2,10 +2,9 @@ import theano
 import theano.tensor as T
 import numpy as np
 from scipy.integrate import trapz
-from symbolic_gradients import logpar_integral, dphi, dalpha, dbeta
 
 
-class IntegrateVectorizedOld(theano.Op):
+class IntegrateVectorizedGeneralized(theano.Op):
     '''
     A numerical integration routine using theano. This is very fragile code.
     Not only because theano is in low power maintenance mode.
@@ -52,7 +51,7 @@ class IntegrateVectorizedOld(theano.Op):
         # from IPython import embed; embed()
         if not hasattr(self, 'precomputed_grads'):
             grad_integrators = T.jacobian(self._expr, self._extra_vars)
-            self.precomputed_grads = [IntegrateVectorizedOld(gi, self._var, self.bins, *self._extra_vars) for gi in grad_integrators]
+            self.precomputed_grads = [IntegrateVectorizedGeneralized(gi, self._var, self.bins, *self._extra_vars) for gi in grad_integrators]
 
         out, = grads
         dargs = []
@@ -175,7 +174,7 @@ if __name__ == '__main__':
     energy = T.dvector('energy')
     func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
 
-    integrator = IntegrateVectorizedOld(func, energy, bins, amplitude_, alpha_, beta_)
+    integrator = IntegrateVectorizedGeneralized(func, energy, bins, amplitude_, alpha_, beta_)
     t0 = time.time()
     for i in range(N):
         integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
@@ -183,7 +182,7 @@ if __name__ == '__main__':
     print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
     old_test_result = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
     print(f'Measuring {N} calls of jacobi')
-    integrator = IntegrateVectorizedOld(func, energy, bins, amplitude_, alpha_, beta_)
+    integrator = IntegrateVectorizedGeneralized(func, energy, bins, amplitude_, alpha_, beta_)
     T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
     t0 = time.time()
     for i in range(N):
