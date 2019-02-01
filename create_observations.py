@@ -39,12 +39,6 @@ def create_data(input_dir, dataset_config):
     )
     bkg_estimate.run()
 
-    # for obs in observations:
-    #     if 'LO_RANGEH' not in obs.aeff.meta:
-    #         obs.aeff.meta['LO_RANGEH'] = energy_bins.min()
-    #     if 'HI_RANGEH' not in obs.aeff.meta:
-    #         obs.aeff.meta['HI_RANGEH'] = energy_bins.max()
-
     print('Extracting Count Spectra')
     extract = SpectrumExtraction(
         observations=observations,
@@ -110,27 +104,33 @@ def add_meta_information(observations, telescope, dataset_config):
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('config_file',type=click.Path(dir_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True))
-@click.option('-t', '--tel', default=None)
-def extract(input_dir, config_file, output_dir, tel):
+@click.option('-t', '--telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas', 'all']), default='all', help='If given, will only extract data for that telescope.')
+def extract(input_dir, config_file, output_dir, telescope):
     '''
-    Provide the input_dir to the folder containing the subfolders for
-    each speerate telescopes.
+    Take the DL3 data and create OGIP observations from it.
+    The background is estimated using the reflected regions method.
+
+    CONFIG_FILE should point to the yaml file contianing the
+    dataset specific settings such as fit_range etc.
+
+    INPUT_DIR is the folder containing the subfolders for
+    each seperate telescope.
     '''
 
     for dataset_config in config(config_file):
-        telescope = dataset_config['telescope']
-        if tel is not None and tel != telescope:
+        tel = dataset_config['telescope']
+        if telescope != 'all' and tel != telescope:
             continue
 
         on_radius = dataset_config['on_radius']
         stack = dataset_config['stack']
-        print(f'Extracting data for {telescope} with radius {on_radius}. Stacking: {stack}')
+        print(f'Extracting data for {tel} with radius {on_radius}. Stacking: {stack}')
         extracted_data = create_data(input_dir, dataset_config)
 
         output_path = os.path.join(output_dir, telescope)
         os.makedirs(output_path, exist_ok=True)
 
-        print(f'Writing data for {telescope} to {os.path.join(output_dir, telescope)}')
+        print(f'Writing data for {tel} to {os.path.join(output_dir, telescope)}')
         if stack:
             print('Stacking observations')
             obs = extracted_data.spectrum_observations.stack()
