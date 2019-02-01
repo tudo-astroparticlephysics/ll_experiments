@@ -16,7 +16,7 @@ from gammapy.spectrum import SpectrumExtraction
 
 from regions import CircleSkyRegion
 
-
+from plots import plot_counts
 
 crab_position = SkyCoord(ra='83d37m59.0988s', dec='22d00m52.2s')
 exclusion_map = Map.read(f"./data/exclusion_mask.fits.gz")
@@ -73,23 +73,6 @@ def config(config_file):
             yield d
 
 
-def plot_counts(output_path, extracted_data, name):
-    counts = []
-    for obs in extracted_data.spectrum_observations:
-        c = obs.on_vector.counts_in_safe_range.value
-        counts.append(c)
-
-    counts = np.sum(counts, axis=0)
-    x = extracted_data.spectrum_observations[0].e_reco.lower_bounds.to_value('TeV')
-
-    plt.title(f'Count Spectrum for {name} telescope.')
-    plt.suptitle(f'total counts: {counts.sum()}')
-    plt.step(x, counts, where='post', lw=2)
-    plt.xscale('log')
-    plt.xlabel('Energy')
-    plt.ylabel('Counts')
-    plt.savefig(os.path.join(output_path, 'counts.pdf'))
-
 
 def add_meta_information(observations, telescope, dataset_config):
     lo, hi = dataset_config['fit_range'].to_value('TeV')
@@ -127,10 +110,10 @@ def extract(input_dir, config_file, output_dir, telescope):
         print(f'Extracting data for {tel} with radius {on_radius}. Stacking: {stack}')
         extracted_data = create_data(input_dir, dataset_config)
 
-        output_path = os.path.join(output_dir, telescope)
+        output_path = os.path.join(output_dir, tel)
         os.makedirs(output_path, exist_ok=True)
 
-        print(f'Writing data for {tel} to {os.path.join(output_dir, telescope)}')
+        print(f'Writing data for {tel} to {os.path.join(output_dir, tel)}')
         if stack:
             print('Stacking observations')
             obs = extracted_data.spectrum_observations.stack()
@@ -140,7 +123,9 @@ def extract(input_dir, config_file, output_dir, telescope):
         else:
             add_meta_information(extracted_data.spectrum_observations, telescope, dataset_config)
             extracted_data.write(output_path, ogipdir="", use_sherpa=True, overwrite=True)
-        plot_counts(output_path, extracted_data, telescope)
+
+        fig, _ = plot_counts(output_path, extracted_data, tel)
+        plt.savefig(os.path.join(output_path, 'counts.pdf'))
 
 if __name__ == '__main__':
     extract()
