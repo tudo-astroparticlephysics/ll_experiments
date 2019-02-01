@@ -6,8 +6,12 @@ from scipy.integrate import trapz
 
 class IntegrateVectorizedGeneralized(theano.Op):
     '''
-    A numerical integration routine using theano. This is very fragile code.
-    Not only because theano is in low power maintenance mode.
+    A numerical integration routine using theano.
+    This works without specifying the gradients explicetly.
+    It requires setting the integration var to T.dvector
+    instead of T.dscalar. This operation seems to be faster
+    in standalone mode. However using pymc it gets horribly slow.
+    I have no clue why that is.
     '''
     def __init__(self, expr, var, bins,  *inputs):
         super().__init__()
@@ -32,16 +36,6 @@ class IntegrateVectorizedGeneralized(theano.Op):
 
     def perform(self, node, inputs, out):
         vals = []
-        # ts = []
-        # for i, (x, delta_x) in enumerate(zip(self.xs, self.delta_xs)):
-            # ts.append(np.array([self._func(i , *inputs) for i in x]))
-
-        # # # print(np.array(inputs), self.lower, self.upper)
-        # vals  = np.array(vals)
-        # from IPython import embed; embed()
-        # res = logpar_integral(self.lower, self.upper, *np.array(inputs))
-        # print(res.shape, vals.shape)
-        # vals = theano.map(lambda x: trapz([self._func(i , *inputs) for i in x], x), sequences=[self.xs, ])
         t = self._func(self.xs.ravel(), *inputs).reshape(self.xs.shape)
         # t = np.array(ts)
         vals = 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
@@ -64,8 +58,13 @@ class IntegrateVectorizedGeneralized(theano.Op):
 
 class IntegrateVectorized(theano.Op):
     '''
-    A numerical integration routine using theano. This is very fragile code.
-    Not only because theano is in low power maintenance mode.
+    A numerical integration routine using theano.
+    you need to pass the function 'f' to integrate and its gradients 'gradients_of_f'
+    w.r.t to the vartiables that you're not integrating over.
+
+    These functions should be numpy friendly and vectorized to work on multiple
+    values of 'var'
+
     '''
     def __init__(self, f, gradients_of_f, var, bins,  *inputs, num_nodes=4):
         super().__init__()
@@ -193,7 +192,4 @@ if __name__ == '__main__':
     old_test_result_jacobian = T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
 
     assert np.allclose(test_result, old_test_result)
-
     assert np.allclose(test_result_jacobian, old_test_result_jacobian)
-
-    # from IPython import embed; embed()
