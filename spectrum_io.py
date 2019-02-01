@@ -5,18 +5,18 @@ import glob
 
 
 def load_joint_spectrum_observation(input_dir):
-    """ Load the OGIP files and return a SpectrumObservationList
-        SpectrumObservationList has already a method to read from a directory
-        http://docs.gammapy.org/dev/api/gammapy.spectrum.SpectrumObservationList.html
-    """
+    ''' Load the OGIP files and return a SpectrumObservationList
+        containing all observations in the subdirectories with names
+        'magic', 'hess', 'fact', 'veritas'.
+    '''
     if not (os.path.exists(input_dir) and os.listdir(input_dir)):
         raise ValueError('No files could be found under that path')
 
     spec_obs_list = SpectrumObservationList()
-    # lo, hi = 0.08, 30
     lo, hi = get_fit_range_interval(input_dir)
+
     # extend the list adding all the other SpectrumObservationList
-    for n in {'magic', 'hess', 'fact', 'veritas'}:
+    for n in ['magic', 'hess', 'fact', 'veritas']:
         spectra_path = os.path.join(input_dir, n)
         spec_obs = SpectrumObservationList.read(spectra_path)
 
@@ -30,9 +30,14 @@ def load_joint_spectrum_observation(input_dir):
     return spec_obs_list, lo, hi
 
 def get_fit_range_interval(input_dir):
+    '''
+    Returns the minimun and maximum of all fit ranges in the
+    OGIP files in the subdirectories with names
+    'magic', 'hess', 'fact', 'veritas'.
+    '''
     lo = []
     hi = []
-    for n in {'magic', 'hess', 'fact', 'veritas'}:
+    for n in ['magic', 'hess', 'fact', 'veritas']:
         spectra_path = os.path.join(input_dir, n)
         l, h, _ = get_fit_settings(spectra_path)
         lo.append(l)
@@ -40,6 +45,13 @@ def get_fit_range_interval(input_dir):
     return min(lo), max(hi)
 
 def load_spectrum_observations(input_dir):
+    '''
+    Create a SpectrumObservationList containing all observations stored
+    within 'input_dir'
+
+    Returns
+    SpectrumObservationList, low_fit_range, high_fit_range
+    '''
     if not (os.path.exists(input_dir) and os.listdir(input_dir)):
         raise ValueError('No files could be found under that path')
 
@@ -56,6 +68,9 @@ def load_spectrum_observations(input_dir):
 
 
 def get_fit_settings(input_dir):
+    '''
+    Reads the header of the ogip file to get the fit range.
+    '''
     ogip_file  = glob.glob(f'{input_dir}/pha*.fits')[0]
 
     with fits.open(ogip_file) as hdu_list:

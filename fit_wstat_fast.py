@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 import astropy.units as u
 
-from spectrum_io import load_spectrum_observations
+from spectrum_io import load_spectrum_observations, load_joint_spectrum_observation
 from theano_ops import IntegrateVectorized
 from plots import plot_landscape
 
@@ -17,16 +17,25 @@ import shutil
 
 
 def apply_range(*arr, fit_range, bins):
+    '''
+    Takes one or more array-like things and returns only those entries
+    whose bins lie within the fit_range.
+    '''
     idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to(u.TeV).value )
     return [a[idx[0]:idx[1]] for a in arr]
 
 
 def init_integrators(observations):
+    '''
+    Initializes the theano symbolic integrator for a LogParabola Spectrum
+    with a base 10 logarithm.
+    '''
     energy = T.dscalar('energy')
     amplitude_ = T.dscalar('amplitude_')
     alpha_ = T.dscalar('alpha_')
     beta_ = T.dscalar('beta_')
 
+    # define spectrum and its gradients
     def f(self, E, phi, alpha, beta):
         return phi*E**(-alpha-beta*np.log10(E))
     def df_dphi(self, E, phi, alpha, beta):
@@ -42,7 +51,10 @@ def init_integrators(observations):
 
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
-
+    '''
+    Forward fold the spectral model through the instrument functions given in the 'observations'
+    Returns the predicted counts in each energy bin.
+    '''
     amplitude *= 1e-11
     if not fit_range:
         lo = observations[0].meta['LO_RANGE']
@@ -52,12 +64,6 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     predicted_signal_per_observation = []
     for observation in observations:
         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-
-        # e_true_bins = observation.edisp.e_true
-
-        # lower =  e_true_bins.lo.to_value(u.TeV)
-        # upper = e_true_bins.hi.to_value(u.TeV)
-
         counts = integrator(amplitude, alpha, beta)
 
 
@@ -81,14 +87,19 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
     '''
     Calculate the value of mu_b given all other  parameters. See
     Dissertation of johannes king or gammapy docu on WSTAT.
+
+    https://www.imprs-hd.mpg.de/267524/thesis_king.pdf
+
+    https://docs.gammapy.org/0.8/stats/fit_statistics.html#poisson-data-with-background-measurement
+
     '''
     alpha = exposure_ratio
     c = alpha * (on_data + off_data) - (alpha + 1)*mu_s
     d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
     mu_b = (c + d) / (2*alpha*(alpha + 1))
 
-    mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
-    mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
+    # mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
+    # mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
     return mu_b
 
 
@@ -130,19 +141,24 @@ def prepare_output(output_dir):
 @click.option('--n_tune', default=600)
 @click.option('--target_accept', default=0.8)
 @click.option('--n_cores', default=6)
-@click.option('--init', default='auto', help='Set pymc sampler init string.')
+@click.option('--seed', default=80085)
+@click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
-def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, init, profile):
+def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
+
+    np.random.seed(seed)
 
     if dataset == 'joint':
-        observations, lo, hi = load_joint_spectrum_observation(input_dir)
+        #TODO need to calculate mu_b for each observation independently.
+        raise NotImplementedError('This is not implemented for the joint dataset yet.')
+        # observations, lo, hi = load_joint_spectrum_observation(input_dir)
     else:
         p = os.path.join(input_dir, dataset)
         observations, lo, hi = load_spectrum_observations(p)
 
     prepare_output(output_dir)
 
-    # todo: this has to happen for every observation independently
+    #TODO: this has to happen for every observation independently
     exposure_ratio = observations[0].alpha[0]
 
     on_data, off_data = get_observed_counts(observations)
@@ -188,7 +204,7 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     print('--' * 30)
     print('Sampling likelihood:')
     with model:
-        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init) # advi+adapt_diag
+        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed]*n_cores)
 
     print('--'*30)
     print(f'Fit results for {dataset}')
