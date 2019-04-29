@@ -1,4 +1,8 @@
-So much wow!
+![Amazing Art](logo.png)
+
+
+Wahta nice logo. Automatically generated using hatchful.shopify.com. Man desgin is easy...
+
 
 ### Data Creation
 
