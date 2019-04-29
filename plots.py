@@ -6,6 +6,7 @@ from gammapy.spectrum.models import SpectralModel
 import astropy.units as u
 from gammapy.utils.fitting import Parameter, Parameters
 
+
 class Log10Parabola(SpectralModel):
     """Gammapy log parabola model matching Sherpa parametrisation.
 
@@ -53,9 +54,9 @@ def plot_landscape(model, off_data, N = 40):
     for al, be in tqdm(zip(a.ravel(), b.ravel())):
 
         p = f(
-            amplitude_lowerbound__ = np.log(4),
-            alpha_lowerbound__ = np.log(al),
-            beta_lowerbound__= np.log(be),
+            amplitude_lowerbound__=np.log(4),
+            alpha_lowerbound__=np.log(al),
+            beta_lowerbound__=np.log(be),
             mu_b_lowerbound__=np.log(off_data + 0.1)
         )
         zs.append(p)
@@ -63,12 +64,12 @@ def plot_landscape(model, off_data, N = 40):
     zs = np.array(zs)
 
     fig, [ax1, ax2] = plt.subplots(1, 2, figsize=(12, 6))
-    cf = ax1.contourf(a, b, zs.reshape(len(a), -1),  levels=100)
+    cf = ax1.contourf(a, b, zs.reshape(len(a), -1), levels=100)
     ax1.set_xlabel('alpha')
     ax1.set_ylabel('beta')
     fig.colorbar(cf, ax=ax1)
 
-    cf = ax2.contourf(a, b, np.log10(-zs.reshape(len(a), -1)),  levels=255, )
+    cf = ax2.contourf(a, b, np.log10(-zs.reshape(len(a), -1)), levels=255, )
     ax2.set_xlabel('alpha')
     ax2.set_ylabel('beta')
     fig.colorbar(cf, ax=ax2)
@@ -124,15 +125,14 @@ def plot_unfolding_result(trace, stacked_observation, fit_range):
     fact_model.plot(energy_range=fit_range, ls=':', color='silver', label='fact', ax=ax)
     hess_model.plot(energy_range=fit_range, ls='-.', color='darkgray', label='hess', ax=ax)
     veritas_model.plot(energy_range=fit_range, ls='-', color='lightgray', label='veritas', ax=ax)
-    # plt.plot(e_center, flux.to_value(1 / (u.TeV * u.s * u.cm**2)), '.')
 
     dl = mean_flux - lower_95
     du = upper_95 - mean_flux
-    ax.errorbar(e_center, mean_flux, yerr=[dl, du],  linestyle='', color='lightgray')
+    ax.errorbar(e_center, mean_flux, yerr=[dl, du], linestyle='', color='lightgray')
 
     dl = mean_flux - lower
     du = upper - mean_flux
-    ax.errorbar(e_center, mean_flux, yerr=[dl, du],  xerr=bin_width/2, linestyle='')
+    ax.errorbar(e_center, mean_flux, yerr=[dl, du], xerr=bin_width / 2, linestyle='')
 
 
 

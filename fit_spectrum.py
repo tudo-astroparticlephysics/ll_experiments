@@ -21,7 +21,7 @@ def apply_range(*arr, fit_range, bins):
     Takes one or more array-like things and returns only those entries
     whose bins lie within the fit_range.
     '''
-    idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to(u.TeV).value )
+    idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to_value(u.TeV))
     return [a[idx[0]:idx[1]] for a in arr]
 
 
@@ -145,7 +145,37 @@ def prepare_output(output_dir):
 @click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
 def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
-
+    '''Fit log-parabola model to DATASET. 
+    
+    Parameters
+    ----------
+    input_dir : [type]
+        input directory containing subdirs for each instrument with dl3 data
+    output_dir : [type]
+        where to save the results. traces and two plots
+    dataset : string
+        telescope name
+    model_type : string
+        whetehr to use the profile likelihood ('wstat' or 'profile') or not ('full')
+    n_samples : int
+        number of samples to draw
+    n_tune : int
+        number of tuning steps
+    target_accept : foat
+        target accept fraction for the pymc sampler
+    n_cores : int
+        number of cpu cores to use
+    seed : int
+        random seed
+    init : string
+        pymc init string
+    profile : bool
+        whether to output debugging/profiling information to the console
+    Raises
+    ------
+    NotImplementedError
+        This does not yet work on the joint dataset. but thats good enough for me.
+    '''
     np.random.seed(seed)
 
     if dataset == 'joint':

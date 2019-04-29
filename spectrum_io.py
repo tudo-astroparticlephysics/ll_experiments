@@ -29,6 +29,7 @@ def load_joint_spectrum_observation(input_dir):
 
     return spec_obs_list, lo, hi
 
+
 def get_fit_range_interval(input_dir):
     '''
     Returns the minimun and maximum of all fit ranges in the
@@ -43,6 +44,7 @@ def get_fit_range_interval(input_dir):
         lo.append(l)
         hi.append(h)
     return min(lo), max(hi)
+
 
 def load_spectrum_observations(input_dir):
     '''
@@ -71,7 +73,7 @@ def get_fit_settings(input_dir):
     '''
     Reads the header of the ogip file to get the fit range.
     '''
-    ogip_file  = glob.glob(f'{input_dir}/pha*.fits')[0]
+    ogip_file = glob.glob(f'{input_dir}/pha*.fits')[0]
 
     with fits.open(ogip_file) as hdu_list:
         h = hdu_list[1].header

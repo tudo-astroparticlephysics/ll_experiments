@@ -9,7 +9,6 @@ from astropy.coordinates import SkyCoord
 import matplotlib.pyplot as plt
 
 from gammapy.data import DataStore
-from gammapy.spectrum import SpectrumObservationList
 from gammapy.maps import Map
 from gammapy.background import ReflectedRegionsBackgroundEstimator
 from gammapy.spectrum import SpectrumExtraction

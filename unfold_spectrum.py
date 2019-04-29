@@ -1,5 +1,4 @@
-from scipy.integrate import quad, trapz, fixed_quad
-import theano
+# import theano
 import theano.tensor as T
 
 import numpy as np
@@ -10,20 +9,10 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 
-from tqdm import tqdm
-
-from gammapy.spectrum import CountsPredictor, CountsSpectrum
 from gammapy.data import DataStore
-from gammapy.maps import Map
-from gammapy.background import ReflectedRegionsBackgroundEstimator
-from gammapy.spectrum import SpectrumObservationList
-from gammapy.data import DataStore
-from gammapy.spectrum import SpectrumObservationList
 from gammapy.maps import Map
 from gammapy.background import ReflectedRegionsBackgroundEstimator
 from gammapy.spectrum import SpectrumExtraction
-
-from scipy.ndimage import filters
 
 from regions import CircleSkyRegion
 
@@ -40,7 +29,7 @@ energy_range = {
     'fact': [0.52, 12] * u.TeV,
     'magic': [0.04, 8] * u.TeV,
     'veritas': [0.115, 6] * u.TeV,
-    'hess': [0.35, 15]*u.TeV
+    'hess': [0.35, 15] * u.TeV
 }
 
 on_radius = {
@@ -50,9 +39,10 @@ on_radius = {
     'hess': 0.11 * u.deg,
 }
 
+
 def create_energy_bins(fit_range, n_bins_per_decade=10, overflow=False):
     bins = np.logspace(-2, 2, (4 * n_bins_per_decade) + 1)
-    bins = apply_range(bins, fit_range=fit_range, bins=bins*u.TeV)[0]
+    bins = apply_range(bins, fit_range=fit_range, bins=bins * u.TeV)[0]
     if overflow:
         bins = np.append(bins, 10000)
         bins = np.append(0, bins)
@@ -60,7 +50,7 @@ def create_energy_bins(fit_range, n_bins_per_decade=10, overflow=False):
 
 
 def load_data(input_dir, telescope, e_true_bins=5, e_reco_bins=10):
-    path  = os.path.join(input_dir, telescope)
+    path = os.path.join(input_dir, telescope)
     ds = DataStore.from_dir(path)
     observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
 
@@ -86,17 +76,20 @@ def load_data(input_dir, telescope, e_true_bins=5, e_reco_bins=10):
 
 def thikonov(f, normalize=False):
     if normalize:
-        f = f/f.sum()
+        f = f / f.sum()
     a = T.dot(laplace_matrix, f)
     a_transposed = a.T
     return T.dot(a, a_transposed)
+
 
 def response(mu_sig, edisp, fit_range=None):
     counts = T.dot(mu_sig, edisp)
     return counts
 
+
 def transform(mu_s, aeff):
     return pm.math.log(mu_s / aeff)
+
 
 def apply_range(*arr, fit_range, bins):
     '''
@@ -106,6 +99,7 @@ def apply_range(*arr, fit_range, bins):
     idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to_value(u.TeV))
     return [a[idx[0]:idx[1]] for a in arr]
 
+
 def prepare_output(output_dir):
     if os.path.exists(output_dir) and os.listdir(output_dir):
         print('Overwriting previous results')
@@ -114,7 +108,7 @@ def prepare_output(output_dir):
 
 
 def display_data(data):
-    max_chars  = 50
+    max_chars = 50
     max_value = max(data)
     for d in data:
         n = int(d * max_chars/max_value)
@@ -141,7 +135,7 @@ def fit(input_dir, output_dir, dataset, tau, n_samples, n_tune, target_accept, n
     r = energy_range[dataset]
     e_reco_bins = create_energy_bins(r, n_bins_per_decade=8, overflow=False)
     e_true_bins = create_energy_bins(r, n_bins_per_decade=6, overflow=False)
-    observation = load_data(input_dir, dataset, e_reco_bins=e_reco_bins, e_true_bins=e_true_bins )
+    observation = load_data(input_dir, dataset, e_reco_bins=e_reco_bins, e_true_bins=e_true_bins)
 
     on_data = observation.on_vector.data.data.value
     off_data = observation.off_vector.data.data.value
@@ -155,8 +149,8 @@ def fit(input_dir, output_dir, dataset, tau, n_samples, n_tune, target_accept, n
     # edisp = m
     # edisp = filters.gaussian_filter(observation.edisp.pdf_matrix, sigma=0)
     edisp = observation.edisp.pdf_matrix
-    N_true = len(observation.edisp.e_true.lo)
-    N_reco = len(observation.edisp.e_reco.lo)
+    # N_true = len(observation.edisp.e_true.lo)
+    # N_reco = len(observation.edisp.e_reco.lo)
 
     print('--' * 30)
     print(f'Unfolding data for:  {dataset.upper()}.  ')
@@ -171,7 +165,7 @@ def fit(input_dir, output_dir, dataset, tau, n_samples, n_tune, target_accept, n
         expected_counts = response(mu_s, edisp=edisp)
         if tau > 0.0:
             lam = thikonov(transform(mu_s, aeff))
-            logp = pm.Normal.dist(mu=0, sd=1/tau).logp(lam)
+            logp = pm.Normal.dist(mu=0, sd=1 / tau).logp(lam)
             p = pm.Potential("thikonov", logp)
 
         b = pm.Poisson('background', mu=mu_b, observed=off_data)
@@ -181,12 +175,12 @@ def fit(input_dir, output_dir, dataset, tau, n_samples, n_tune, target_accept, n
     print('--' * 30)
     print('Sampling likelihood:')
     with model:
-        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed]*n_cores)
+        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed] * n_cores)
 
 
     print('--' * 30)
     print('Plotting result')
-    plot_unfolding_result(trace, observation, fit_range=[0.05, 12]*u.TeV)
+    plot_unfolding_result(trace, observation, fit_range=[0.05, 12] * u.TeV)
     plt.savefig(os.path.join(output_dir, 'result.pdf'))
 
 
