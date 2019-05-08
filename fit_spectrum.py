@@ -46,8 +46,8 @@ def init_integrators(observations):
         return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
 
     e_true_bins = observations[0].edisp.e_true
-    bins  = e_true_bins.bins.to_value(u.TeV)
-    return IntegrateVectorized(f,[df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
+    bins = e_true_bins.bins.to_value(u.TeV)
+    return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
 
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
@@ -64,7 +64,7 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     predicted_signal_per_observation = []
     for observation in observations:
         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-        counts = integrator(amplitude, alpha, beta)
+        counts = integrator(amplitude, alpha, beta)  # the integrator has been initialized with the proper energy bins before.
 
 
         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
@@ -72,7 +72,7 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
         counts *= aeff
         counts *= observation.livetime.to_value(u.s)
         edisp = observation.edisp.pdf_matrix
-
+        from IPython import embed; embed()
         predicted_signal_per_observation.append(T.dot(counts, edisp))
 
     predicted_counts = T.sum(predicted_signal_per_observation, axis=0)

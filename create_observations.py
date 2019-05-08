@@ -84,7 +84,7 @@ def add_meta_information(observations, telescope, dataset_config):
 
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
-@click.argument('config_file',type=click.Path(dir_okay=False))
+@click.argument('config_file', type=click.Path(dir_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True))
 @click.option('-t', '--telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas', 'all']), default='all', help='If given, will only extract data for that telescope.')
 def extract(input_dir, config_file, output_dir, telescope):
