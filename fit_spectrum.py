@@ -72,7 +72,6 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
         counts *= aeff
         counts *= observation.livetime.to_value(u.s)
         edisp = observation.edisp.pdf_matrix
-        from IPython import embed; embed()
         predicted_signal_per_observation.append(T.dot(counts, edisp))
 
     predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
