@@ -1,7 +1,6 @@
 import theano
 import theano.tensor as T
 import numpy as np
-from scipy.integrate import trapz
 
 
 class IntegrateVectorizedGeneralized(theano.Op):
@@ -41,7 +40,7 @@ class IntegrateVectorizedGeneralized(theano.Op):
         vals = 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
         out[0][0] = vals
 
-    def L_op(self, inputs, output,  grads):
+    def L_op(self, inputs, output, grads):
         # from IPython import embed; embed()
         if not hasattr(self, 'precomputed_grads'):
             grad_integrators = T.jacobian(self._expr, self._extra_vars)
@@ -50,7 +49,7 @@ class IntegrateVectorizedGeneralized(theano.Op):
         out, = grads
         dargs = []
         for integrate in self.precomputed_grads:
-            darg = T.dot(out,  integrate(*inputs))
+            darg = T.dot(out, integrate(*inputs))
             # print(darg)
             dargs.append(darg)
         return dargs
@@ -66,19 +65,19 @@ class IntegrateVectorized(theano.Op):
     values of 'var'
 
     '''
-    def __init__(self, f, gradients_of_f, var, bins,  *inputs, num_nodes=4):
+    def __init__(self, f, gradients_of_f, var, bins, *inputs, num_nodes=4):
         super().__init__()
         self.f = f
         self.gradients_of_f = gradients_of_f
 
         self._var = var
         self._extra_vars = inputs
+        num_bins = len(bins) - 1
+        bin_widths = np.diff(bins)
 
-        lower = bins[0:-1]
-        upper = bins[1:]
-        self.xs = np.array([np.linspace(a, b, num=num_nodes) for a, b in zip(lower, upper)])
-        self.delta_xs = np.array([np.diff(x) for x in self.xs])
-
+        d = np.tile(np.linspace(0, 1, num=num_nodes), num_bins).reshape(num_bins, -1) 
+        self.xs = (d * bin_widths[:, None]) + bins[0:-1, None] 
+        self.delta_xs = np.diff(self.xs)
 
     def make_node(self, *inputs):
         return theano.Apply(self, list(inputs), [T.dvector().type()])
@@ -88,20 +87,20 @@ class IntegrateVectorized(theano.Op):
         out[0][0] = self.trapz(t)
 
     def trapz(self, t):
-        return 0.5 * np.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
+        return 0.5 * np.sum((t[:, 0:-1] + t[:, 1:]) * self.delta_xs, axis=1)
 
     def trapz_theano(self, t):
-        return 0.5 * T.sum((t[:, 0:-1] + t[:, 1:])*self.delta_xs, axis=1)
+        return 0.5 * T.sum((t[:, 0:-1] + t[:, 1:]) * self.delta_xs, axis=1)
 
 
-    def L_op(self, inputs, output,  output_grads):
+    def L_op(self, inputs, output, output_grads):
         out, = output_grads
 
         dargs = []
 
         for gradient in self.gradients_of_f:
             t = gradient(self, self.xs, *inputs)
-            darg = T.dot(out,  self.trapz_theano(t))
+            darg = T.dot(out, self.trapz_theano(t))
             dargs.append(darg)
 
         return dargs
@@ -168,7 +167,32 @@ if __name__ == '__main__':
 
 
     print('--'*30)
-    print('Integrating Vectorized Old')
+    print('Integrating Vectorized Slow (non vectorized)')
+    energy = T.dscalar('energy')
+
+    integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[:-1], bins[1:])]
+
+    t0 = time.time()
+    for i in range(N):
+        for integrator in integrators:
+            integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t1 = time.time()
+    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
+    
+    print(f'Measuring {N} calls of jacobi')
+    integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[: -1], bins[1:])]
+    T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t0 = time.time()
+    for i in range(N):
+        for integrator in integrators:
+            T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t1 = time.time()
+
+    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
+
+
+    print('--'*30)
+    print('Integrating Vectorized Generalized')
     print(f'Measuring {N} calls of eval')
     energy = T.dvector('energy')
     func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
