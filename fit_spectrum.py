@@ -10,7 +10,7 @@ import seaborn as sns
 import astropy.units as u
 
 from spectrum_io import load_spectrum_observations
-from theano_ops import IntegrateVectorized
+from theano_ops import IntegrateVectorized, log_par_integral_theano
 from plots import plot_landscape
 
 import click
@@ -38,22 +38,21 @@ def init_integrators(observations):
     beta_ = T.dscalar('beta_')
 
     # define spectrum and its gradients
-    def f(self, E, phi, alpha, beta):
+    def f(E, phi, alpha, beta):
         return phi * E**(-alpha - beta * np.log10(E))
 
-    def df_dphi(self, E, phi, alpha, beta):
+    def df_dphi(E, phi, alpha, beta):
         return E**(-alpha - beta * np.log10(E))
 
-    def df_dalpha(self, E, phi, alpha, beta):
+    def df_dalpha(E, phi, alpha, beta):
         return -phi * E**(-alpha - beta * np.log10(E)) * np.log(E)
 
-    def df_dbeta(self, E, phi, alpha, beta):
+    def df_dbeta(E, phi, alpha, beta):
         return -(phi * E**(-alpha - beta * np.log10(E)) * np.log(E)**2) / np.log(10)
 
     e_true_bins = observations[0].edisp.e_true
     bins = e_true_bins.bins.to_value(u.TeV)
     return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
-
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
     '''
@@ -70,8 +69,6 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     for observation in observations:
         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
         counts = integrator(amplitude, alpha, beta)  # the integrator has been initialized with the proper energy bins before.
-
-
         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
 
         counts *= aeff
@@ -85,6 +82,37 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
         predicted_counts = predicted_counts[idx[0]:idx[1]]
 
     return predicted_counts
+
+
+# def forward_fold_log_parabola_analytic(amplitude, alpha, beta, observations, fit_range=None):
+#     '''
+#     Forward fold the spectral model through the instrument functions given in the 'observations'
+#     Returns the predicted counts in each energy bin.
+#     '''
+#     amplitude *= 1e-11
+#     if not fit_range:
+#         lo = observations[0].meta['LO_RANGE']
+#         hi = observations[0].meta['HI_RANGE']
+#         fit_range = [lo, hi] * u.TeV
+
+#     predicted_signal_per_observation = []
+#     for observation in observations:
+#         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
+#         counts = log_par_integral_theano(obs_bins, amplitude, alpha, beta) 
+
+#         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
+
+#         counts *= aeff
+#         counts *= observation.livetime.to_value(u.s)
+#         edisp = observation.edisp.pdf_matrix
+#         predicted_signal_per_observation.append(T.dot(counts, edisp))
+
+#     predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
+#     if fit_range is not None:
+#         idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
+#         predicted_counts = predicted_counts[idx[0]:idx[1]]
+
+#     return predicted_counts
 
 
 def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
@@ -205,11 +233,12 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     print(f'Fit range is: {(lo, hi) * u.TeV}.')
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
-        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
-        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.01, testval=2.5)
-        beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
+        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.05, testval=0.21)
+        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.05, testval=0.21)
+        beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.001, testval=0.1)
 
         mu_s = forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations)
+        # mu_s = forward_fold_log_parabola_analytic(amplitude, alpha, beta, observations)
 
         if model_type == 'wstat':
             print('Building profiled likelihood model')
@@ -230,6 +259,8 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     if profile:
         model.profile(model.logpt).summary()
 
+    print(model.check_test_point())
+
     print('--' * 30)
     print('Plotting landscape:')
     fig, _ = plot_landscape(model, off_data)
@@ -239,6 +270,7 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     print('Printing  graphs:')
     theano.printing.pydotprint(mu_s, outfile=os.path.join(output_dir, 'graph_mu_s.pdf'), format='pdf', var_with_name_simple=True)  
     theano.printing.pydotprint(mu_s + exposure_ratio * mu_b, outfile=os.path.join(output_dir, 'graph_n_on.pdf'), format='pdf', var_with_name_simple=True)  
+
 
     print('--' * 30)
     print('Sampling likelihood:')
