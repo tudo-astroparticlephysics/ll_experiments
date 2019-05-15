@@ -1,13 +1,15 @@
+import theano
 import theano.tensor as T
 
 import numpy as np
 import pymc3 as pm
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 import astropy.units as u
 
-from spectrum_io import load_spectrum_observations, load_joint_spectrum_observation
+from spectrum_io import load_spectrum_observations
 from theano_ops import IntegrateVectorized
 from plots import plot_landscape
 
@@ -37,13 +39,16 @@ def init_integrators(observations):
 
     # define spectrum and its gradients
     def f(self, E, phi, alpha, beta):
-        return phi*E**(-alpha-beta*np.log10(E))
+        return phi * E**(-alpha - beta * np.log10(E))
+
     def df_dphi(self, E, phi, alpha, beta):
-        return E**(-alpha-beta*np.log10(E))
+        return E**(-alpha - beta * np.log10(E))
+
     def df_dalpha(self, E, phi, alpha, beta):
-        return -phi*E**(-alpha-beta*np.log10(E)) * np.log(E)
+        return -phi * E**(-alpha - beta * np.log10(E)) * np.log(E)
+
     def df_dbeta(self, E, phi, alpha, beta):
-        return -(phi*E**(-alpha-beta*np.log10(E)) * np.log(E)**2)/np.log(10)
+        return -(phi * E**(-alpha - beta * np.log10(E)) * np.log(E)**2) / np.log(10)
 
     e_true_bins = observations[0].edisp.e_true
     bins = e_true_bins.bins.to_value(u.TeV)
@@ -93,9 +98,9 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
 
     '''
     alpha = exposure_ratio
-    c = alpha * (on_data + off_data) - (alpha + 1)*mu_s
-    d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
-    mu_b = (c + d) / (2*alpha*(alpha + 1))
+    c = alpha * (on_data + off_data) - (alpha + 1) * mu_s
+    d = pm.math.sqrt(c**2 + 4 * (alpha + 1) * alpha * off_data * mu_s)
+    mu_b = (c + d) / (2 * alpha * (alpha + 1))
 
     # mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
     # mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
@@ -145,7 +150,7 @@ def prepare_output(output_dir):
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
 def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
     '''Fit log-parabola model to DATASET. 
-    
+
     Parameters
     ----------
     input_dir : [type]
@@ -155,12 +160,12 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     dataset : string
         telescope name
     model_type : string
-        whetehr to use the profile likelihood ('wstat' or 'profile') or not ('full')
+        whether to use the profile likelihood ('wstat' or 'profile') or not ('full')
     n_samples : int
         number of samples to draw
     n_tune : int
         number of tuning steps
-    target_accept : foat
+    target_accept : float
         target accept fraction for the pymc sampler
     n_cores : int
         number of cpu cores to use
@@ -187,28 +192,28 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
 
     prepare_output(output_dir)
 
-    #TODO: this has to happen for every observation independently
+    # TODO: this has to happen for every observation independently
     exposure_ratio = observations[0].alpha[0]
 
     on_data, off_data = get_observed_counts(observations)
 
-    integrator_dict = init_integrators(observations)
+    integrator = init_integrators(observations)
 
     print('--' * 30)
     print(f'Fitting data for {dataset} in {len(observations)} observations.  ')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
-    print(f'Fit range is: {(lo, hi) * u.TeV}.  ')
+    print(f'Fit range is: {(lo, hi) * u.TeV}.')
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
         amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
         alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.01, testval=2.5)
         beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
-        mu_s = forward_fold_log_parabola_symbolic(integrator_dict, amplitude, alpha, beta, observations)
+        mu_s = forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations)
 
         if model_type == 'wstat':
             print('Building profiled likelihood model')
-            mu_b  = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
+            mu_b = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
         else:
             print('Building full likelihood model')
             mu_b = pm.TruncatedNormal('mu_b', lower=0, shape=len(off_data), mu=off_data, sd=5)
@@ -231,11 +236,16 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     fig.savefig(os.path.join(output_dir, 'landscape.pdf'))
 
     print('--' * 30)
+    print('Printing  graphs:')
+    theano.printing.pydotprint(mu_s, outfile=os.path.join(output_dir, 'graph_mu_s.pdf'), format='pdf', var_with_name_simple=True)  
+    theano.printing.pydotprint(mu_s + exposure_ratio * mu_b, outfile=os.path.join(output_dir, 'graph_n_on.pdf'), format='pdf', var_with_name_simple=True)  
+
+    print('--' * 30)
     print('Sampling likelihood:')
     with model:
-        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed]*n_cores)
+        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed] * n_cores)
 
-    print('--'*30)
+    print('--' * 30)
     print(f'Fit results for {dataset}')
     print(trace['amplitude'].mean(), trace['alpha'].mean(), trace['beta'].mean())
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))
@@ -246,6 +256,14 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     varnames = ['amplitude', 'alpha', 'beta'] if model_type != 'full' else ['amplitude', 'alpha', 'beta', 'mu_b']
     pm.traceplot(trace, varnames=varnames)
     plt.savefig(os.path.join(output_dir, 'traces.pdf'))
+
+    plt.figure()
+    energy = trace['energy']
+    energy_diff = np.diff(energy)
+    sns.distplot(energy - energy.mean(), label='energy')
+    sns.distplot(energy_diff, label='energy diff')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'energy.pdf'))
 
     trace_output = os.path.join(output_dir, 'traces')
     print(f'Saving traces to {trace_output}')

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from matplotlib.colors import LogNorm
+
 from gammapy.spectrum.models import SpectralModel
 import astropy.units as u
 from gammapy.utils.fitting import Parameter, Parameters
@@ -42,7 +42,7 @@ class Log10Parabola(SpectralModel):
         return amplitude * np.power(xx, exponent)
 
 
-def plot_landscape(model, off_data, N = 40):
+def plot_landscape(model, off_data, N=60):
     '''
     Plot the likelihood landscape of the given pymc model
     '''
