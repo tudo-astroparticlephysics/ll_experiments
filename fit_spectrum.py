@@ -1,3 +1,4 @@
+import theano
 import theano.tensor as T
 
 import numpy as np
@@ -26,7 +27,7 @@ def apply_range(*arr, fit_range, bins):
     return [a[idx[0]:idx[1]] for a in arr]
 
 
-def init_integrators(observations, vectorized=True):
+def init_integrators(observations):
     '''
     Initializes the theano symbolic integrator for a LogParabola Spectrum
     with a base 10 logarithm.
@@ -38,63 +39,21 @@ def init_integrators(observations, vectorized=True):
 
     # define spectrum and its gradients
     def f(self, E, phi, alpha, beta):
-        return phi * E**(-alpha -beta*np.log10(E))
+        return phi * E**(-alpha - beta * np.log10(E))
 
     def df_dphi(self, E, phi, alpha, beta):
-        return E**(-alpha -beta*np.log10(E))
+        return E**(-alpha - beta * np.log10(E))
 
     def df_dalpha(self, E, phi, alpha, beta):
-        return -phi * E**(-alpha -beta*np.log10(E)) * np.log(E)
+        return -phi * E**(-alpha - beta * np.log10(E)) * np.log(E)
 
     def df_dbeta(self, E, phi, alpha, beta):
-        return -(phi * E**(-alpha -beta*np.log10(E)) * np.log(E)**2) / np.log(10)
+        return -(phi * E**(-alpha - beta * np.log10(E)) * np.log(E)**2) / np.log(10)
 
     e_true_bins = observations[0].edisp.e_true
     bins = e_true_bins.bins.to_value(u.TeV)
-    print(bins.shape)
-    if vectorized:
-        return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
-    else:
-        return [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[: -1], bins[1:])]
 
-
-def forward_fold_log_parabola_symbolic_slow(integrators, amplitude, alpha, beta, observations, fit_range=None):
-    '''
-    Forward fold the spectral model through the instrument functions given in the 'observations'
-    Returns the predicted counts in each energy bin.
-    '''
-    amplitude *= 1e-11
-    if not fit_range:
-        lo = observations[0].meta['LO_RANGE']
-        hi = observations[0].meta['HI_RANGE']
-        fit_range = [lo, hi] * u.TeV
-
-    predicted_signal_per_observation = []
-    for observation in observations:
-        obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-        counts = []
-        for integrator in integrators:
-            counts.append(integrator(amplitude, alpha, beta))
-
-        counts = T.stack(counts, axis=1)
-        aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
-
-        counts *= aeff
-        counts *= observation.livetime.to_value(u.s)
-        edisp = observation.edisp.pdf_matrix
-
-        predicted_signal_per_observation.append(T.dot(counts, edisp))
-
-    predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
-
-    if fit_range is not None:
-        idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
-        print(idx)
-        predicted_counts = predicted_counts[0][idx[0]:idx[1]]
-
-    return predicted_counts
-
-
+    return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
 
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
@@ -125,7 +84,6 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
     if fit_range is not None:
         idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
-        print(idx)
         predicted_counts = predicted_counts[idx[0]:idx[1]]
 
     return predicted_counts
@@ -142,9 +100,9 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
 
     '''
     alpha = exposure_ratio
-    c = alpha * (on_data + off_data) - (alpha + 1)*mu_s
-    d = pm.math.sqrt(c**2 + 4 * (alpha + 1)*alpha*off_data*mu_s)
-    mu_b = (c + d) / (2*alpha*(alpha + 1))
+    c = alpha * (on_data + off_data) - (alpha + 1) * mu_s
+    d = pm.math.sqrt(c**2 + 4 * (alpha + 1) * alpha * off_data * mu_s)
+    mu_b = (c + d) / (2 * alpha * (alpha + 1))
 
     # mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
     # mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
@@ -192,8 +150,7 @@ def prepare_output(output_dir):
 @click.option('--seed', default=80085)
 @click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
-@click.option('--vectorized/--no-vectorized', default=True, help='whether to use vectorized operations')
-def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile, vectorized):
+def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
     '''Fit log-parabola model to DATASET. 
 
     Parameters
@@ -242,7 +199,7 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
 
     on_data, off_data = get_observed_counts(observations)
 
-    integrator_dict = init_integrators(observations, vectorized=vectorized)
+    integrator = init_integrators(observations)
 
     print('--' * 30)
     print(f'Fitting data for {dataset} in {len(observations)} observations.  ')
@@ -254,10 +211,7 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
         alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.01, testval=2.5)
         beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.01, testval=0.5)
 
-        if not vectorized:
-            mu_s = forward_fold_log_parabola_symbolic_slow(integrator_dict, amplitude, alpha, beta, observations)    
-        else:
-            mu_s = forward_fold_log_parabola_symbolic(integrator_dict, amplitude, alpha, beta, observations)
+        mu_s = forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations)
 
         if model_type == 'wstat':
             print('Building profiled likelihood model')
@@ -285,16 +239,15 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
 
     print('--' * 30)
     print('Printing  graphs:')
-    import theano
     theano.printing.pydotprint(mu_s, outfile=os.path.join(output_dir, 'graph_mu_s.pdf'), format='pdf', var_with_name_simple=True)  
     theano.printing.pydotprint(mu_s + exposure_ratio * mu_b, outfile=os.path.join(output_dir, 'graph_n_on.pdf'), format='pdf', var_with_name_simple=True)  
 
     print('--' * 30)
     print('Sampling likelihood:')
     with model:
-        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed]*n_cores)
+        trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed] * n_cores)
 
-    print('--'*30)
+    print('--' * 30)
     print(f'Fit results for {dataset}')
     print(trace['amplitude'].mean(), trace['alpha'].mean(), trace['beta'].mean())
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))

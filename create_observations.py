@@ -45,7 +45,7 @@ def create_data(input_dir, dataset_config):
         e_true=energy_bins,
         e_reco=energy_bins,
         containment_correction=containment,
-        use_recommended_erange=False, # TODO this might have to be checked.
+        use_recommended_erange=False,  # TODO this might have to be checked.
     )
     extract.run()
     return extract
@@ -54,6 +54,7 @@ def create_data(input_dir, dataset_config):
 def create_energy_bins(tel_config):
     n_bins = tel_config['bins_per_decade']
     return np.logspace(-2, 2, (4 * n_bins) + 1) * u.TeV
+
 
 def config(config_file):
     with open(config_file) as f:
@@ -72,7 +73,6 @@ def config(config_file):
             yield d
 
 
-
 def add_meta_information(observations, telescope, dataset_config):
     lo, hi = dataset_config['fit_range'].to_value('TeV')
     for obs in observations:
@@ -84,7 +84,7 @@ def add_meta_information(observations, telescope, dataset_config):
 
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
-@click.argument('config_file',type=click.Path(dir_okay=False))
+@click.argument('config_file', type=click.Path(dir_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True))
 @click.option('-t', '--telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas', 'all']), default='all', help='If given, will only extract data for that telescope.')
 def extract(input_dir, config_file, output_dir, telescope):
@@ -125,6 +125,7 @@ def extract(input_dir, config_file, output_dir, telescope):
 
         fig, _ = plot_counts(output_path, extracted_data, tel)
         plt.savefig(os.path.join(output_path, 'counts.pdf'))
+
 
 if __name__ == '__main__':
     extract()
