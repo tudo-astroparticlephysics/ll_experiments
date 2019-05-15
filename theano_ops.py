@@ -2,6 +2,7 @@ import theano
 import theano.tensor as T
 import numpy as np
 from scipy.integrate import quad
+from scipy.special import erf
 
 
 class IntegrateVectorizedGeneralized(theano.Op):
@@ -106,6 +107,33 @@ class IntegrateVectorized(theano.Op):
         return dargs
 
 
+def _int(alpha, beta, lower, upper):
+    erf_arg = np.sqrt(beta) + (alpha - 1) / (2 * np.sqrt(beta))
+    exp_arg = ((alpha - 1)**2) / (4 * beta)
+    # print((erf(upper*erf_arg) - erf(lower*erf_arg)))
+    r = 0.5 * np.sqrt(np.pi / beta) * np.exp(exp_arg) * (erf(upper*erf_arg) - erf(lower*erf_arg))
+    return r
+
+
+def log_par_integral(bins, N, alpha, beta):
+    u = np.log(bins)
+    b = beta / np.log(10)
+    return N * _int(alpha, b, u[0:-1], u[1:])
+
+
+def _int_theano(alpha, beta, lower, upper):
+    erf_arg = T.sqrt(beta) + (alpha - 1) / (2 * T.sqrt(beta))
+    exp_arg = ((alpha - 1)**2) / (4 * beta)
+    r = 0.5 * T.sqrt(np.pi / beta) * T.exp(exp_arg) * (T.erf(upper*erf_arg) - T.erf(lower*erf_arg))
+    return r
+
+
+def log_par_integral_theano(bins, N, alpha, beta):
+    u = T.log(bins)
+    b = beta / T.log(10)
+    return N * _int_theano(alpha, b, u[0:-1], u[1:])
+
+
 
 if __name__ == '__main__':
     import time
@@ -134,21 +162,86 @@ if __name__ == '__main__':
     alpha_ = T.dscalar('alpha_')
     beta_ = T.dscalar('beta_')
 
-
     bins = np.logspace(-2, 2, 50)
 
     amplitude = T.dscalar('amplitude')
     alpha = T.dscalar('alpha')
     beta = T.dscalar('beta')
+    
+    from tqdm import tqdm
+    print('Testing equality')
+    print(np.log(bins))
+    invalid_coords = []
+    valid_coords = []
+    zero_coords = []
+    nan_coords = []
+    for b_param in tqdm(np.linspace(0.01, 7, 100)):
+        for a_param in np.linspace(0.01, 7, 100):
+            reference_result = np.array([quad(lambda e: f(e, 4.0, a_param, b_param), a=a, b=b)[0] for a, b in zip(bins[:-1], bins[1:])])
+            analytical_result = log_par_integral(bins, 4.0, a_param, b_param)
+            if np.allclose(reference_result, analytical_result):
+                valid_coords.append([a_param, b_param])
+            else:
+                invalid_coords.append([a_param, b_param])
+            if np.isnan(analytical_result).any():
+                nan_coords.append([a_param, b_param])
+            if (analytical_result == 0).all():
+                # print('Had zero!')
+                zero_coords.append([a_param, b_param])
+            
+    # print(reference_result)
+    # print(analytical_result)
+    invalid_coords = np.array(invalid_coords)
+    valid_coords = np.array(valid_coords)
+    zero_coords = np.array(zero_coords)
+    nan_coords = np.array(nan_coords)
+    _, ax1 = plt.subplots(1, 1, figsize=(10, 7))
+    ax1.scatter(invalid_coords[:, 0], invalid_coords[:, 1], color='yellow', label='result != truth')
+    ax1.scatter(zero_coords[:, 0], zero_coords[:, 1], color='orange', label='Zero Result')
+    ax1.scatter(nan_coords[:, 0], nan_coords[:, 1], color='crimson', label='NaN result')
+    ax1.scatter(valid_coords[:, 0], valid_coords[:, 1], color='green', label='Valid result')
+    ax1.set_xlabel('a')
+    ax1.set_ylabel('b')
+    ax1.legend()
+    # ax2.hist2d(invalid_coords[:, 0], invalid_coords[:, 1], bins=20)
+    plt.savefig('validity.pdf')
 
-    reference_result = np.array([quad(lambda e: f(e, 4.0, 2.0, 0.5), a=a, b=b)[0] for a, b in zip(bins[:-1], bins[1:])])
-    print(reference_result)
+    1/0
+    # analytical_result = log_par_integral(bins, 0.1 * 1E-11, .1, 0.1)
+    # print(analytical_result)
+
+    print('--' * 30)
+    print('Integrating Analytically')
+    energy = T.dscalar('energy')
+    integration_result = log_par_integral_theano(bins, amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # integration_result = integrator(amplitude, alpha, beta)
+    # print(integration_result)
+    print(f'Measuring {N} calls of eval')
+    t0 = time.time()
+    for i in range(N):
+        log_par_integral_theano(bins, amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t1 = time.time()
+    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
+    # test_result = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+
+    print(f'Measuring {N} calls of jacobi')
+    # integrator = IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
+    T.jacobian(log_par_integral_theano(bins, amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t0 = time.time()
+    for i in range(N):
+        T.jacobian(log_par_integral_theano(bins, amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    t1 = time.time()
+
+    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
+    # test_result_jacobian = T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+
+
     print('--' * 30)
     print('Integrating Vectorized')
     energy = T.dscalar('energy')
     integrator = IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
     integration_result = integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    print(integration_result)
+    # print(integration_result)
     print(f'Measuring {N} calls of eval')
 
     t0 = time.time()
@@ -170,29 +263,29 @@ if __name__ == '__main__':
     test_result_jacobian = T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
 
 
-    print('--'*30)
-    print('Integrating Vectorized Slow (non vectorized)')
-    energy = T.dscalar('energy')
+        # print('--'*30)
+    # print('Integrating Vectorized Slow (non vectorized)')
+    # energy = T.dscalar('energy')
 
-    integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[:-1], bins[1:])]
+    # integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[:-1], bins[1:])]
 
-    t0 = time.time()
-    for i in range(N):
-        for integrator in integrators:
-            integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    t1 = time.time()
-    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
+    # t0 = time.time()
+    # for i in range(N):
+    #     for integrator in integrators:
+    #         integrator(amplitude, alpha, beta).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # t1 = time.time()
+    # print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total')
     
-    print(f'Measuring {N} calls of jacobi')
-    integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[: -1], bins[1:])]
-    T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    t0 = time.time()
-    for i in range(N):
-        for integrator in integrators:
-            T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
-    t1 = time.time()
+    # print(f'Measuring {N} calls of jacobi')
+    # integrators = [IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, np.array(b), amplitude_, alpha_, beta_) for b in zip(bins[: -1], bins[1:])]
+    # T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # t0 = time.time()
+    # for i in range(N):
+    #     for integrator in integrators:
+    #         T.jacobian(integrator(amplitude, alpha, beta), amplitude).eval({amplitude: 4.0, alpha: 2.0, beta: 0.5})
+    # t1 = time.time()
 
-    print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
+    # print(f'Takes approximately  {(t1-t0) / N} seconds per iteration, {(t1-t0)} seconds in total (for {len(bins)} bins)')
 
 
     print('--'*30)
