@@ -10,7 +10,7 @@ import seaborn as sns
 import astropy.units as u
 
 from spectrum_io import load_spectrum_observations
-from theano_ops import IntegrateVectorized, log_par_integral_theano
+from theano_ops import IntegrateVectorized, IntegrateVectorizedGeneralized
 from plots import plot_landscape
 
 import click
@@ -52,7 +52,12 @@ def init_integrators(observations):
 
     e_true_bins = observations[0].edisp.e_true
     bins = e_true_bins.bins.to_value(u.TeV)
-    return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
+    # return IntegrateVectorized(f, [df_dphi, df_dalpha, df_dbeta], energy, bins, amplitude_, alpha_, beta_)
+    energy = T.dvector('energy')
+    func = amplitude_ * energy **(-alpha_ - beta_ * T.log10(energy))
+    return IntegrateVectorizedGeneralized(func, energy, bins, amplitude_, alpha_, beta_)
+
+
 
 def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations, fit_range=None):
     '''
@@ -84,35 +89,6 @@ def forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, obser
     return predicted_counts
 
 
-# def forward_fold_log_parabola_analytic(amplitude, alpha, beta, observations, fit_range=None):
-#     '''
-#     Forward fold the spectral model through the instrument functions given in the 'observations'
-#     Returns the predicted counts in each energy bin.
-#     '''
-#     amplitude *= 1e-11
-#     if not fit_range:
-#         lo = observations[0].meta['LO_RANGE']
-#         hi = observations[0].meta['HI_RANGE']
-#         fit_range = [lo, hi] * u.TeV
-
-#     predicted_signal_per_observation = []
-#     for observation in observations:
-#         obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-#         counts = log_par_integral_theano(obs_bins, amplitude, alpha, beta) 
-
-#         aeff = observation.aeff.data.data.to_value(u.cm**2).astype(np.float32)
-
-#         counts *= aeff
-#         counts *= observation.livetime.to_value(u.s)
-#         edisp = observation.edisp.pdf_matrix
-#         predicted_signal_per_observation.append(T.dot(counts, edisp))
-
-#     predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
-#     if fit_range is not None:
-#         idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
-#         predicted_counts = predicted_counts[idx[0]:idx[1]]
-
-#     return predicted_counts
 
 
 def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
