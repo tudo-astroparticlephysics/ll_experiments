@@ -279,8 +279,4 @@ def plot_spectra(sampler, mle_result, fit_range=[0.03, 30] * u.TeV, min_sample=5
     )
     magic_model.plot(energy_range=fit_range, energy_power=2, color='gray', ls='--', label='magic')
 
-
-
-
-
     CrabSpectrum(reference='meyer').model.plot(energy_range=[0.01, 100]*u.TeV, energy_power=2, color='black', ls=':')
