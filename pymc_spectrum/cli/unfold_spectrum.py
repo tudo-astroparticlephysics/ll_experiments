@@ -20,6 +20,8 @@ from plots import plot_unfolding_result
 import click
 import os
 import shutil
+from scipy.filters import laplace
+from utils import display_data
 
 
 crab_position = SkyCoord(ra='83d37m59.0988s', dec='22d00m52.2s')
@@ -77,6 +79,9 @@ def load_data(input_dir, telescope, e_true_bins=5, e_reco_bins=10):
 def thikonov(f, normalize=False):
     if normalize:
         f = f / f.sum()
+
+    laplace_matrix = laplace(np.eye(len(f))) // 2
+
     a = T.dot(laplace_matrix, f)
     a_transposed = a.T
     return T.dot(a, a_transposed)
@@ -107,17 +112,6 @@ def prepare_output(output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
 
-def display_data(data):
-    max_chars = 50
-    max_value = max(data)
-    for d in data:
-        n = int(d * max_chars/max_value)
-        s = '█'* n
-        if d == 0:
-            s = '_'
-        print(s + f'     {d}')
-    print(data)
-
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True, file_okay=False))
@@ -145,18 +139,13 @@ def fit(input_dir, output_dir, dataset, tau, n_samples, n_tune, target_accept, n
     exposure_ratio = observation.alpha[0]
     aeff = observation.aeff.data.data.value
 
-    # m = filters.gaussian_filter(observation.edisp.pdf_matrix, sigma=0)
-    # edisp = m
-    # edisp = filters.gaussian_filter(observation.edisp.pdf_matrix, sigma=0)
     edisp = observation.edisp.pdf_matrix
-    # N_true = len(observation.edisp.e_true.lo)
-    # N_reco = len(observation.edisp.e_reco.lo)
 
     print('--' * 30)
     print(f'Unfolding data for:  {dataset.upper()}.  ')
     print(f'IRF with {observation.edisp.pdf_matrix.shape}')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
-    # print(f'Fit range is: {(lo, hi) * u.TeV}.  ')
+
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
         mu_b = pm.HalfFlat('mu_b', shape=len(off_data))

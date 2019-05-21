@@ -92,7 +92,7 @@ def extract(input_dir, config_file, output_dir, telescope):
     Take the DL3 data and create OGIP observations from it.
     The background is estimated using the reflected regions method.
 
-    CONFIG_FILE should point to the yaml file contianing the
+    CONFIG_FILE should point to the yaml file containing the
     dataset specific settings such as fit_range etc.
 
     INPUT_DIR is the folder containing the subfolders for

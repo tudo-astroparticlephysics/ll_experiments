@@ -16,6 +16,7 @@ from plots import plot_landscape
 import click
 import os
 import shutil
+from ..utils import display_data
 
 
 def apply_range(*arr, fit_range, bins):
@@ -197,8 +198,13 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     on_data, off_data = get_observed_counts(observations)
 
     integrator = init_integrators(observations)
-    # print(on_data)
-    # print(off_data)
+
+    print('On Data')
+    display_data(on_data)
+
+    print('Off Data')
+    display_data(off_data)
+    
     print('--' * 30)
     print(f'Fitting data for {dataset} in {len(observations)} observations.  ')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
