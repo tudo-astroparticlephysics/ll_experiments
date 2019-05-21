@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='pymc_spectrum',
-    version='0.0.2',
+    version='0.1.0',
     description='A tool to fit IACT 1D spectra',
     url='https://github.com/tudo-astroparticlephysics/ll_experiments',
     author='Kai Brügge',
@@ -24,6 +24,8 @@ setup(
         'scipy',
         'tqdm',
         'pymc3==3.6',
+        'gammapy==0.10',
+        'astropy>=3.1.2',
     ],
     zip_safe=False,
     entry_points={
