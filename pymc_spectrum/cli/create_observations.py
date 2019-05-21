@@ -9,19 +9,16 @@ from astropy.coordinates import SkyCoord
 import matplotlib.pyplot as plt
 
 from gammapy.data import DataStore
-from gammapy.maps import Map
+# from gammapy.maps import Map
 from gammapy.background import ReflectedRegionsBackgroundEstimator
 from gammapy.spectrum import SpectrumExtraction
 
 from regions import CircleSkyRegion
 
-from plots import plot_counts
-
-crab_position = SkyCoord(ra='83d37m59.0988s', dec='22d00m52.2s')
-exclusion_map = Map.read(f"./data/exclusion_mask.fits.gz")
+from ..plots import plot_counts
 
 
-def create_data(input_dir, dataset_config):
+def create_data(input_dir, dataset_config, exclusion_map=None):
     telescope = dataset_config['telescope']
     on_region_radius = dataset_config['on_radius']
     energy_bins = dataset_config['bins']
@@ -30,7 +27,8 @@ def create_data(input_dir, dataset_config):
     ds = DataStore.from_dir(os.path.join(input_dir, telescope))
     observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
 
-    on_region = CircleSkyRegion(center=crab_position, radius=on_region_radius)
+    source_position = dataset_config['source_position']
+    on_region = CircleSkyRegion(center=source_position, radius=on_region_radius)
 
     print('Estimating Background')
     bkg_estimate = ReflectedRegionsBackgroundEstimator(
@@ -59,6 +57,7 @@ def create_energy_bins(tel_config):
 def config(config_file):
     with open(config_file) as f:
         d = yaml.load(f)
+        source_pos = d['source_position']
         for tel_config in d['datasets']:
 
             d = {
@@ -68,12 +67,18 @@ def config(config_file):
                 'stack': tel_config.get('stack', False),
                 'bins': create_energy_bins(tel_config),
                 'fit_range': tel_config['fit_range'] * u.TeV,
+                'source_position': SkyCoord(ra=source_pos['ra'], dec=source_pos['dec']),
             }
 
             yield d
 
 
 def add_meta_information(observations, telescope, dataset_config):
+    '''
+    This propertiy will be added to the hdus of the *pha.fits files.
+    They are read by the loop in `get_fit_settings` and then set to be meta data for 
+    the observations again. I considers this an ugly workaround to gammapy behaviour which I think is a bug.
+    '''
     lo, hi = dataset_config['fit_range'].to_value('TeV')
     for obs in observations:
         obs.meta['TELESCOP'] = telescope
@@ -87,7 +92,7 @@ def add_meta_information(observations, telescope, dataset_config):
 @click.argument('config_file', type=click.Path(dir_okay=False))
 @click.argument('output_dir', type=click.Path(dir_okay=True))
 @click.option('-t', '--telescope', type=click.Choice(['fact', 'hess', 'magic', 'veritas', 'all']), default='all', help='If given, will only extract data for that telescope.')
-def extract(input_dir, config_file, output_dir, telescope):
+def main(input_dir, config_file, output_dir, telescope):
     '''
     Take the DL3 data and create OGIP observations from it.
     The background is estimated using the reflected regions method.
@@ -128,4 +133,4 @@ def extract(input_dir, config_file, output_dir, telescope):
 
 
 if __name__ == '__main__':
-    extract()
+    main()

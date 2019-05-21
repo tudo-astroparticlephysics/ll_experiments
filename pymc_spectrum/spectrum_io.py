@@ -4,32 +4,6 @@ from gammapy.spectrum import SpectrumObservationList
 import glob
 
 
-def load_joint_spectrum_observation(input_dir):
-    ''' Load the OGIP files and return a SpectrumObservationList
-        containing all observations in the subdirectories with names
-        'magic', 'hess', 'fact', 'veritas'.
-    '''
-    if not (os.path.exists(input_dir) and os.listdir(input_dir)):
-        raise ValueError('No files could be found under that path')
-
-    spec_obs_list = SpectrumObservationList()
-    lo, hi = get_fit_range_interval(input_dir)
-
-    # extend the list adding all the other SpectrumObservationList
-    for n in ['magic', 'hess', 'fact', 'veritas']:
-        spectra_path = os.path.join(input_dir, n)
-        spec_obs = SpectrumObservationList.read(spectra_path)
-
-        for obs in spec_obs:
-            obs.meta['LO_RANGE'] = lo
-            obs.meta['HI_RANGE'] = hi
-            obs.meta['TELESCOP'] = n
-
-        spec_obs_list.extend(spec_obs)
-
-    return spec_obs_list, lo, hi
-
-
 def get_fit_range_interval(input_dir):
     '''
     Returns the minimun and maximum of all fit ranges in the
@@ -55,10 +29,10 @@ def load_spectrum_observations(input_dir):
     SpectrumObservationList, low_fit_range, high_fit_range
     '''
     if not (os.path.exists(input_dir) and os.listdir(input_dir)):
-        raise ValueError('No files could be found under that path')
+        raise ValueError(f'No files could be found under that path: {input_dir}')
 
     spec_obs_list = SpectrumObservationList.read(input_dir)
-
+    
     lo, hi, tel = get_fit_settings(input_dir)
 
     for obs in spec_obs_list:

@@ -5,13 +5,13 @@ import numpy as np
 import pymc3 as pm
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+# import seaborn as sns
 
 import astropy.units as u
 
-from spectrum_io import load_spectrum_observations
-from theano_ops import IntegrateVectorized, log_par_integral_theano
-from plots import plot_landscape
+from ..spectrum_io import load_spectrum_observations
+from ..theano_ops import IntegrateVectorized
+from ..plots import plot_landscape
 
 import click
 import os
@@ -148,7 +148,7 @@ def prepare_output(output_dir):
 @click.option('--seed', default=80085)
 @click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
 @click.option('--profile/--no-profile', default=False, help='Output profiling information')
-def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
+def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_accept, n_cores, seed, init, profile):
     '''Fit log-parabola model to DATASET. 
 
     Parameters
@@ -211,9 +211,12 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     print(f'Fit range is: {(lo, hi) * u.TeV}.')
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
-        amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
-        alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.00, testval=2.5)
-        beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.00000, testval=0.5)
+        # amplitude = pm.TruncatedNormal('amplitude', mu=4, sd=1, lower=0.01, testval=4)
+        # alpha = pm.TruncatedNormal('alpha', mu=2.5, sd=1, lower=0.00, testval=2.5)
+        # beta = pm.TruncatedNormal('beta', mu=0.5, sd=0.5, lower=0.00000, testval=0.5)
+        amplitude = pm.HalfFlat('amplitude', testval=4)
+        alpha = pm.HalfFlat('alpha', testval=2.5)
+        beta = pm.HalfFlat('beta', testval=0.5)
 
         mu_s = forward_fold_log_parabola_symbolic(integrator, amplitude, alpha, beta, observations)
         # mu_s = forward_fold_log_parabola_analytic(amplitude, alpha, beta, observations)
@@ -267,13 +270,25 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
     pm.traceplot(trace, varnames=varnames)
     plt.savefig(os.path.join(output_dir, 'traces.pdf'))
 
-    plt.figure()
-    energy = trace['energy']
-    energy_diff = np.diff(energy)
-    sns.distplot(energy - energy.mean(), label='energy')
-    sns.distplot(energy_diff, label='energy diff')
-    plt.legend()
-    plt.savefig(os.path.join(output_dir, 'energy.pdf'))
+    p = os.path.join(output_dir, 'num_samples.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_samples}}}')
+
+    p = os.path.join(output_dir, 'num_chains.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_cores}}}')
+    
+    p = os.path.join(output_dir, 'num_tune.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_tune}}}')
+
+    # plt.figure()
+    # energy = trace['energy']
+    # energy_diff = np.diff(energy)
+    # # sns.distplot(energy - energy.mean(), label='energy')
+    # # sns.distplot(energy_diff, label='energy diff')
+    # plt.legend()
+    # plt.savefig(os.path.join(output_dir, 'energy.pdf'))
 
     trace_output = os.path.join(output_dir, 'traces')
     print(f'Saving traces to {trace_output}')
@@ -282,4 +297,4 @@ def fit(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_ac
 
 
 if __name__ == '__main__':
-    fit()
+    main()

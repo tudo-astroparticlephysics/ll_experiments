@@ -51,16 +51,24 @@ def plot_landscape(model, off_data, N=60):
     f = model.logp
     zs = []
     a, b = np.meshgrid(alphas, betas)
+    # from IPython import embed; embed()
     for al, be in tqdm(zip(a.ravel(), b.ravel())):
 
-        p = f(
-            amplitude_lowerbound__=np.log(4),
-            alpha_lowerbound__=np.log(al),
-            beta_lowerbound__=np.log(be),
-            mu_b_lowerbound__=np.log(off_data + 0.1)
-        )
+        try:
+            p = f(
+                amplitude_lowerbound__=np.log(4),
+                alpha_lowerbound__=np.log(al),
+                beta_lowerbound__=np.log(be),
+                mu_b_lowerbound__=np.log(off_data + 0.1)
+            )
+        except TypeError:
+            p = f(
+                amplitude_log__=np.log(4),
+                alpha_log__=np.log(al),
+                beta_log__=np.log(be),
+                mu_b_lowerbound__=np.log(off_data + 0.1)
+            )
         zs.append(p)
-
     zs = np.array(zs)
 
     fig, [ax1, ax2] = plt.subplots(1, 2, figsize=(12, 6))
