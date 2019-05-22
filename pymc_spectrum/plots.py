@@ -127,7 +127,7 @@ def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV):
 
     # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
     norm = 1 * u.Unit('km-2 s-1 TeV-1')
-    flux = (trace['mu_s'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2))
+    flux = (trace['expected_counts'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2))
 
     bin_center = np.sqrt(bins[0:-1] * bins[1:]).to_value('TeV')
     bin_width = np.diff(bins).to_value('TeV')
