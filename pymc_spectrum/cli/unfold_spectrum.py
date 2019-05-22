@@ -38,7 +38,7 @@ def create_energy_bins(fit_range, n_bins_per_decade=10, overflow=False):
     return bins * u.TeV
 
 
-def load_data(path, source_position, on_radius, e_true_bins=5, e_reco_bins=10, exclusion_map=None, ):
+def load_data(path, source_position, on_radius, e_true_bins=5, e_reco_bins=10, exclusion_map=None, stack=True):
 
     ds = DataStore.from_dir(path)
     observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
@@ -60,7 +60,10 @@ def load_data(path, source_position, on_radius, e_true_bins=5, e_reco_bins=10, e
         use_recommended_erange=False,
     )
     extract.run()
-    return extract.spectrum_observations.stack()
+    if stack:
+        return [extract.spectrum_observations.stack()]
+    else:
+        return extract.spectrum_observations
 
 
 def thikonov(f, normalize=False):
@@ -94,6 +97,49 @@ def prepare_output(output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
 
+def forward_fold(counts, observations, fit_range):
+    '''
+    Forward fold the spectral model through the instrument functions given in the 'observations'
+    Returns the predicted counts in each energy bin.
+    '''
+
+    predicted_signal_per_observation = []
+    for observation in observations:
+        obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
+
+        aeff = observation.aeff.data.data.to_value(u.km**2).astype(np.float32)
+
+        # from IPython import embed; embed()
+        e_true_bin_width = observation.e_true.diff().to_value('TeV')
+        c = counts * aeff * e_true_bin_width
+        c *= observation.livetime.to_value(u.s)
+        edisp = observation.edisp.pdf_matrix
+        predicted_signal_per_observation.append(T.dot(c, edisp))
+
+    predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
+
+    idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
+    predicted_counts = predicted_counts[idx[0]:idx[1]]
+
+    return predicted_counts
+
+
+def get_observed_counts(observations, fit_range=None):
+    on_data = []
+    off_data = []
+
+    for observation in observations:
+        on_data.append(observation.on_vector.data.data.value)
+        off_data.append(observation.off_vector.data.data.value)
+
+    on_data = np.sum(on_data, axis=0)
+    off_data = np.sum(off_data, axis=0)
+
+    energy_bins = observations[0].on_vector.energy.bins
+    on_data, off_data = apply_range(on_data, off_data, fit_range=fit_range, bins=energy_bins)
+
+    return on_data, off_data
+
 
 
 @click.command()
@@ -119,34 +165,37 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
         fit_range = d[dataset]['fit_range'] * u.TeV
         on_radius = d[dataset]['on_radius'] * u.deg
         bins_per_decade = d[dataset]['bins_per_decade']
+        stack = d[dataset].get('stack', False)
 
     path = os.path.join(input_dir, dataset)
 
     e_reco_bins = create_energy_bins(fit_range, n_bins_per_decade=bins_per_decade + 2, overflow=False)
     e_true_bins = create_energy_bins(fit_range, n_bins_per_decade=bins_per_decade, overflow=False)
     
-    observation = load_data(path, e_reco_bins=e_reco_bins, e_true_bins=e_true_bins, on_radius=on_radius, source_position=source_pos)
+    observations = load_data(path, e_reco_bins=e_reco_bins, e_true_bins=e_true_bins, on_radius=on_radius, source_position=source_pos, stack=stack)
+    
+    exposure_ratio = observations[0].alpha
+    # print(exposure_ratio)
+    on_data, off_data = get_observed_counts(observations, fit_range=fit_range)
 
-    on_data = observation.on_vector.data.data.value
-    off_data = observation.off_vector.data.data.value
     print(f'On Data {on_data.shape}\n')
     display_data(on_data)
     print(f'\n\n Off Data {off_data.shape}\n')
     display_data(off_data)
 
-    exposure_ratio = observation.alpha[0]
-    aeff = observation.aeff.data.data.value
+    # exposure_ratio = observation.alpha[0]
+    # aeff = observation.aeff.data.data.value
 
-    edisp = observation.edisp.pdf_matrix
+    edisp = observations[0].edisp
     plt.figure()
-    plt.imshow(edisp)
+    plt.imshow(edisp.pdf_matrix)
     plt.xlabel('reco energy')
     plt.ylabel('true energy')
     plt.savefig(os.path.join(output_dir, 'edisp.pdf'))
 
     print('--' * 30)
     print(f'Unfolding data for:  {dataset.upper()}.  ')
-    print(f'IRF with {edisp.shape}')
+    print(f'IRF with {edisp.pdf_matrix.shape}')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
 
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
@@ -155,14 +204,15 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
         # mu_b = BoundedNormal('mu_b', shape=len(off_data), mu=off_data, sd=1)
         # mu_b = pm.TruncatedNormal('mu_b', shape=len(off_data), sd=5, mu=off_data, lower=0.01)
         mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
-        expected_counts = pm.HalfFlat('mu_s', shape=len(observation.edisp.e_true.lo), testval=on_data.mean())
-        c = expected_counts * observation.aeff.data.data.to_value('km2') * observation.livetime.to_value('s') * observation.edisp.e_true.bin_width.to_value('TeV')
-        mu_s = T.dot(c, edisp)
+        expected_counts = pm.HalfFlat('mu_s', shape=len(edisp.e_true.lo), testval=on_data.mean())
+        # c = expected_counts * observation.aeff.data.data.to_value('km2') * observation.livetime.to_value('s') * observation.edisp.e_true.bin_width.to_value('TeV')
+        # mu_s = T.dot(c, edisp)
+        mu_s = forward_fold(expected_counts, observations, fit_range=fit_range)
 
-        if tau > 0.0:
-            lam = thikonov(transform(mu_s, aeff))
-            logp = pm.Normal.dist(mu=0, sd=1 / tau).logp(lam)
-            pm.Potential("thikonov", logp)
+        # if tau > 0.0:
+        #     lam = thikonov(transform(mu_s, aeff))
+        #     logp = pm.Normal.dist(mu=0, sd=1 / tau).logp(lam)
+        #     pm.Potential("thikonov", logp)
 
         pm.Poisson('background', mu=mu_b + 1E-5, observed=off_data)
         pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b + 1E-5, observed=on_data)
@@ -177,10 +227,9 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     with model:
         trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed] * n_cores)
 
-
     print('--' * 30)
     print('Plotting result')
-    plot_unfolding_result(trace, observation)
+    plot_unfolding_result(trace, e_true_bins)
     plt.savefig(os.path.join(output_dir, 'result.pdf'))
 
 
