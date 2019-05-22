@@ -265,10 +265,10 @@ def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_a
 
     print('--' * 30)
     print('Plotting traces')
-    plt.figure()
-    varnames = ['amplitude', 'alpha', 'beta'] if model_type != 'full' else ['amplitude', 'alpha', 'beta', 'mu_b']
-    pm.traceplot(trace, varnames=varnames)
-    plt.savefig(os.path.join(output_dir, 'traces.pdf'))
+    # plt.figure()
+    # varnames = ['amplitude', 'alpha', 'beta'] if model_type != 'full' else ['amplitude', 'alpha', 'beta', 'mu_b']
+    # pm.traceplot(trace, varnames=varnames)
+    # plt.savefig(os.path.join(output_dir, 'traces.pdf'))
 
     p = os.path.join(output_dir, 'num_samples.txt')
     with open(p, "w") as text_file:
@@ -282,13 +282,18 @@ def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_a
     with open(p, "w") as text_file:
         text_file.write(f'\\num{{{n_tune}}}')
 
-    # plt.figure()
-    # energy = trace['energy']
-    # energy_diff = np.diff(energy)
-    # # sns.distplot(energy - energy.mean(), label='energy')
-    # # sns.distplot(energy_diff, label='energy diff')
-    # plt.legend()
-    # plt.savefig(os.path.join(output_dir, 'energy.pdf'))
+    plt.figure()
+    pm.energyplot(trace)
+    plt.savefig(os.path.join(output_dir, 'energy.pdf'))
+
+    plt.figure()
+    pm.autocorrplot(trace, burn=n_tune)
+    plt.savefig(os.path.join(output_dir, 'autocorr.pdf'))
+    
+    plt.figure()
+    pm.forestplot(trace, varnames=['amplitude', 'alpha', 'beta'])
+    plt.savefig(os.path.join(output_dir, 'forest.pdf'))
+    
 
     trace_output = os.path.join(output_dir, 'traces')
     print(f'Saving traces to {trace_output}')

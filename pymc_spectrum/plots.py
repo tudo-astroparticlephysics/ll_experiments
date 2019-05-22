@@ -85,7 +85,7 @@ def plot_landscape(model, off_data, N=60):
     return fig, [ax1, ax2]
 
 
-def plot_unfolding_result(trace, stacked_observation, fit_range):
+def plot_unfolding_result(trace, stacked_observation, fit_range=[0.01, 20] * u.TeV):
     magic_model = Log10Parabola(
         amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
         reference=1 * u.Unit('TeV'),
@@ -115,14 +115,24 @@ def plot_unfolding_result(trace, stacked_observation, fit_range):
     )
 
 
-    e_center = stacked_observation.edisp.e_true.log_center().to_value(u.TeV)[1:-1]
-    bin_width = stacked_observation.edisp.e_true.bin_width.to_value(u.TeV)[1:-1]
+    # e_center = stacked_observation.edisp.e_true.log_center().to_value(u.TeV)[1:-1]
+    # bin_width = stacked_observation.edisp.e_true.bin_width.to_value(u.TeV)[1:-1]
 
-    norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
-    norm = norm[1:-1]
-    flux = trace['mu_s'][:, 1:-1] * norm
-    mean_flux = np.median(flux, axis=0).to_value(1 / (u.TeV * u.s * u.cm**2))
-    lower, upper = np.percentile(flux, [25, 75], axis=0)
+    # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
+    # norm = norm[1:-1]
+    # flux = trace['mu_s'][:, 1:-1] * norm
+    
+    e_center = stacked_observation.edisp.e_true.log_center().to_value(u.TeV)
+    bin_width = stacked_observation.edisp.e_true.bin_width.to_value(u.TeV)
+
+    # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
+    norm = 1 * u.Unit('km-2 s-1 TeV-1')
+    flux = (trace['mu_s'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2))
+
+    
+
+    mean_flux = np.median(flux, axis=0)
+    lower, upper = np.percentile(flux, [16, 84], axis=0)
     lower_95, upper_95 = np.percentile(flux, [5, 95], axis=0)
 
     dl = mean_flux - lower
@@ -136,7 +146,7 @@ def plot_unfolding_result(trace, stacked_observation, fit_range):
 
     dl = mean_flux - lower_95
     du = upper_95 - mean_flux
-    ax.errorbar(e_center, mean_flux, yerr=[dl, du], linestyle='', color='lightgray')
+    ax.errorbar(e_center, mean_flux, yerr=[dl, du], linestyle='', color='gray')
 
     dl = mean_flux - lower
     du = upper - mean_flux

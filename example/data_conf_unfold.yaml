@@ -2,31 +2,32 @@ datasets:
   - name: 'magic'
     on_radius: 0.141
     containment_correction: False
-    bins_per_decade: 20
-    fit_range: [0.08, 30]
+    bins_per_decade: 5
+    fit_range: [0.04, 8]
 
   - name: 'fact'
     on_radius: 0.17
     containment_correction: False
-    bins_per_decade: 20
+    bins_per_decade: 5
     stack: True
-    fit_range: [0.4, 30]
+    fit_range: [0.52, 12]
 
   - name: 'veritas'
     on_radius: 0.10
     containment_correction: False
-    bins_per_decade: 20
+    bins_per_decade: 5
     stack: True
-    fit_range: [0.16, 30]
+    fit_range: [0.115, 6]
 
   - name: 'hess'
     on_radius: 0.11
     containment_correction: True
-    bins_per_decade: 20
-    fit_range: [0.4, 30]
+    bins_per_decade: 5
+    fit_range: [0.35, 15]
 
 source_position:
   ra: '83d37m59.0988s'
   dec: '22d00m52.2s'
 
 # exclusion_map: "exclusion_mask.fits.gz"
+
