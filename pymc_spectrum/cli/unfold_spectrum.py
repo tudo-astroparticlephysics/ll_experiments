@@ -29,34 +29,40 @@ def create_energy_bins(fit_range, n_bins_per_decade=10, overflow=False):
     bins = np.logspace(-2, 2, (4 * n_bins_per_decade) + 1)
     bins = apply_range(bins, fit_range=fit_range, bins=bins * u.TeV)[0]
     if overflow:
-        bins = np.append(bins, 50000)
-        bins = np.append(0, bins)
+        bins = np.append(bins, 500)
+        bins = np.append(0.001, bins)
     return bins * u.TeV
 
 
-def load_data(path, source_position, on_radius, e_true_bins=5, e_reco_bins=10, exclusion_map=None, stack=True):
+def load_data(input_dir, dataset_config, exclusion_map=None):
+    on_region_radius = dataset_config['on_radius']
+    e_reco_bins = dataset_config['e_reco_bins']
+    e_true_bins = dataset_config['e_true_bins']
+    containment = dataset_config['containment_correction']
 
-    ds = DataStore.from_dir(path)
-    observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
+    ds = DataStore.from_dir(input_dir)
+    observations = ds.get_observations(ds.obs_table['OBS_ID'].data)
 
-    on_region = CircleSkyRegion(center=source_position, radius=on_radius)
+    source_position = dataset_config['source_position']
+    on_region = CircleSkyRegion(center=source_position, radius=on_region_radius)
+
+    print('Estimating Background')
     bkg_estimate = ReflectedRegionsBackgroundEstimator(
-        observations=observations,
-        on_region=on_region,
-        exclusion_mask=exclusion_map
+        observations=observations, on_region=on_region, exclusion_mask=exclusion_map
     )
     bkg_estimate.run()
 
+    print('Extracting Count Spectra')
     extract = SpectrumExtraction(
         observations=observations,
         bkg_estimate=bkg_estimate.result,
         e_true=e_true_bins,
         e_reco=e_reco_bins,
-        containment_correction=False,
+        containment_correction=containment,
         use_recommended_erange=False,
     )
     extract.run()
-    if stack:
+    if dataset_config['stack']:
         return [extract.spectrum_observations.stack()]
     else:
         return extract.spectrum_observations
@@ -119,23 +125,78 @@ def forward_fold(counts, observations, fit_range):
     return predicted_counts
 
 
-def get_observed_counts(observations, fit_range=None):
+def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
+    '''
+    Calculate the value of mu_b given all other  parameters. See
+    Dissertation of johannes king or gammapy docu on WSTAT.
+
+    https://www.imprs-hd.mpg.de/267524/thesis_king.pdf
+
+    https://docs.gammapy.org/0.8/stats/fit_statistics.html#poisson-data-with-background-measurement
+
+    '''
+    alpha = exposure_ratio
+    c = alpha * (on_data + off_data) - (alpha + 1) * mu_s
+    d = pm.math.sqrt(c**2 + 4 * (alpha + 1) * alpha * off_data * mu_s)
+    mu_b = (c + d) / (2 * alpha * (alpha + 1))
+
+    # mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
+    # mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
+    return mu_b
+
+
+def apply_range(*arr, fit_range, bins):
+    '''
+    Takes one or more array-like things and returns only those entries
+    whose bins lie within the fit_range.
+    '''
+    idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to_value(u.TeV))
+    return [a[idx[0]:idx[1]] for a in arr]
+
+
+def get_observed_counts(observations, fit_range, bins):
     on_data = []
     off_data = []
+    excess = []
 
     for observation in observations:
         on_data.append(observation.on_vector.data.data.value)
         off_data.append(observation.off_vector.data.data.value)
+        excess.append(on_data[-1] - observation.alpha * off_data[-1])
 
     on_data = np.sum(on_data, axis=0)
     off_data = np.sum(off_data, axis=0)
+    excess = np.sum(excess, axis=0)
 
-    energy_bins = observations[0].on_vector.energy.bins
-    on_data, off_data = apply_range(on_data, off_data, fit_range=fit_range, bins=energy_bins)
+    if len(observations) > 1:  # obs have not been stacked
+        t = np.array([o.livetime.to_value('s') for o in observations])
+        w = t / t.sum()
+        mean_exposure_ratio = (w * [o.alpha for o in observations]).sum()
+    else:
+        mean_exposure_ratio = observations[0].alpha.mean()
 
-    return on_data, off_data
+    on_data, off_data = apply_range(on_data, off_data, fit_range=fit_range, bins=bins)
+    return on_data, off_data, excess, mean_exposure_ratio
 
 
+def load_config(config_file, telescope):
+    with open(config_file) as f:
+        d = yaml.load(f)
+        source_pos = d['source_position']
+        tel_config = d['datasets'][telescope]
+
+        d = {
+            'telescope': telescope,
+            'on_radius': tel_config['on_radius'] * u.deg,
+            'containment_correction': tel_config['containment_correction'],
+            'stack': tel_config.get('stack', False),
+            'fit_range': tel_config['fit_range'] * u.TeV,
+            'e_reco_bins': create_energy_bins(tel_config['fit_range'] * u.TeV, tel_config['bins_per_decade'] + 2, overflow=True),
+            'e_true_bins': create_energy_bins(tel_config['fit_range'] * u.TeV, tel_config['bins_per_decade'], overflow=True),
+            'source_position': SkyCoord(ra=source_pos['ra'], dec=source_pos['dec']),
+        }
+
+        return d
 
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
@@ -153,50 +214,44 @@ def get_observed_counts(observations, fit_range=None):
 def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples, n_tune, target_accept, n_cores, seed, init):
     prepare_output(output_dir)
 
-    with open(config_file) as f:
-        conf = yaml.load(f)
-        source_pos = SkyCoord(ra=conf['source_position']['ra'], dec=conf['source_position']['dec'])
-        d = {k['name']: k for k in conf['datasets']}
-        fit_range = d[dataset]['fit_range'] * u.TeV
-        on_radius = d[dataset]['on_radius'] * u.deg
-        bins_per_decade = d[dataset]['bins_per_decade']
-        stack = d[dataset].get('stack', False)
-
+    config = load_config(config_file, dataset)
+    fit_range = config['fit_range']
     path = os.path.join(input_dir, dataset)
 
-    e_reco_bins = create_energy_bins(fit_range, n_bins_per_decade=bins_per_decade + 2, overflow=False)
-    e_true_bins = create_energy_bins(fit_range, n_bins_per_decade=bins_per_decade, overflow=False)
-
-    observations = load_data(path, e_reco_bins=e_reco_bins, e_true_bins=e_true_bins, on_radius=on_radius, source_position=source_pos, stack=stack)
-
-    exposure_ratio = observations[0].alpha
-    # print(exposure_ratio)
-    on_data, off_data = get_observed_counts(observations, fit_range=fit_range)
-
-    print(f'On Data {on_data.shape}\n')
-    display_data(on_data)
-    print(f'\n\n Off Data {off_data.shape}\n')
-    display_data(off_data)
-
+    observations = load_data(path, config)
+    # exposure_ratio = observations[0].alpha
+    # from IPython import embed; embed()
+    on_data, off_data, excess, exposure_ratio = get_observed_counts(observations, fit_range=fit_range, bins=config['e_reco_bins'])
+    print(f'Exposure ratio {exposure_ratio}')
+    from IPython import embed; embed()
+    # print(f'On Data {on_data.shape}\n')
+    # display_data(on_data)
+    # print(f'\n\n Off Data {off_data.shape}\n')
+    # display_data(off_data)
+    print(f'Excess {excess.shape} \n')
+    display_data(excess)
     print('--' * 30)
     print(f'Unfolding data for:  {dataset.upper()}.  ')
-    print(f'IRF with {(len(e_true_bins) - 1, len(e_reco_bins) - 1)}')
+    # print(f'IRF with {len( config['e_true_bins'] ) - 1, len( config['e_reco_bins'] ) - 1}')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
 
 
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
         # mu_b = pm.TruncatedNormal('mu_b', shape=len(off_data), sd=5, mu=off_data, lower=0.01)
-        mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
-        # expected_counts = pm.Lognormal('expected_counts', shape=len(e_true_bins) - 1, testval=1)
-        expected_counts = pm.Lognormal('expected_counts', shape=len(e_true_bins) - 1, testval=10)
+        expected_counts = pm.Lognormal('expected_counts', shape=len(config['e_true_bins']) - 1, testval=10)
+        # expected_counts = pm.HalfFlat('expected_counts', shape=len(config['e_true_bins']) - 1, testval=10)
 
         mu_s = forward_fold(expected_counts, observations, fit_range=fit_range)
 
-        # if tau > 0.0:
-        #     lam = thikonov(transform(mu_s, aeff))
-        #     logp = pm.Normal.dist(mu=0, sd=1 / tau).logp(lam)
-        #     pm.Potential("thikonov", logp)
+        if model_type == 'wstat':
+            print('Building profiled likelihood model')
+            mu_b = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
+        else:
+            print('Building full likelihood model')
+            mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
+            # mu_b = pm.Lognormal('mu_b', shape=len(off_data),  sd=5)
+
 
         pm.Poisson('background', mu=mu_b + 1E-5, observed=off_data)
         pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b + 1E-5, observed=on_data)
@@ -211,9 +266,14 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     with model:
         trace = pm.sample(n_samples, cores=n_cores, tune=n_tune, init=init, seed=[seed] * n_cores)
 
+    trace_output = os.path.join(output_dir, 'traces')
+    print(f'Saving traces to {trace_output}')
+    with model:
+        pm.save_trace(trace, trace_output, overwrite=True)
+
     print('--' * 30)
     print('Plotting result')
-    plot_unfolding_result(trace, e_true_bins)
+    plot_unfolding_result(trace, config['e_true_bins'], ignore_overflow=True)
     plt.savefig(os.path.join(output_dir, 'result.pdf'))
 
 
@@ -238,11 +298,6 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     pm.forestplot(trace)
     plt.savefig(os.path.join(output_dir, 'forest.pdf'))
     
-
-    trace_output = os.path.join(output_dir, 'traces')
-    print(f'Saving traces to {trace_output}')
-    with model:
-        pm.save_trace(trace, trace_output, overwrite=True)
 
 
 if __name__ == '__main__':

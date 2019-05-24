@@ -21,12 +21,14 @@ from ..plots import plot_counts
 def create_data(input_dir, dataset_config, exclusion_map=None):
     telescope = dataset_config['telescope']
     on_region_radius = dataset_config['on_radius']
-    energy_bins = dataset_config['bins']
+    energy_bins = dataset_config['e_reco_bins']
     containment = dataset_config['containment_correction']
 
     ds = DataStore.from_dir(os.path.join(input_dir, telescope))
-    observations = ds.get_observations(ds.hdu_table['OBS_ID'].data)
-
+    observations = ds.get_observations(ds.obs_table['OBS_ID'].data)
+    t_obs = sum([o.observation_live_time_duration for o in observations])
+    # from IPython import embed; embed()
+    print(f'Total obstime for {telescope} is {t_obs.to("h")}')
     source_position = dataset_config['source_position']
     on_region = CircleSkyRegion(center=source_position, radius=on_region_radius)
 
@@ -49,28 +51,24 @@ def create_data(input_dir, dataset_config, exclusion_map=None):
     return extract
 
 
-def create_energy_bins(tel_config):
-    n_bins = tel_config['bins_per_decade']
-    return np.logspace(-2, 2, (4 * n_bins) + 1) * u.TeV
-
-
-def config(config_file):
+def load_config(telescope, config_file):
     with open(config_file) as f:
         d = yaml.load(f)
         source_pos = d['source_position']
-        for tel_config in d['datasets']:
+        tel_config = d['datasets'][telescope]
+        n_bins_per_decade = tel_config['bins_per_decade']
+        d = {
+            'telescope': telescope,
+            'on_radius': tel_config['on_radius'] * u.deg,
+            'containment_correction': tel_config['containment_correction'],
+            'stack': tel_config.get('stack', False),
+            'fit_range': tel_config['fit_range'] * u.TeV,
+            'e_reco_bins': np.logspace(-2, 2, (4 * n_bins_per_decade) + 1) * u.TeV,
+            'e_true_bins': np.logspace(-2, 2, (4 * n_bins_per_decade) + 1) * u.TeV,
+            'source_position': SkyCoord(ra=source_pos['ra'], dec=source_pos['dec']),
+        }
 
-            d = {
-                'telescope': tel_config['name'],
-                'on_radius': tel_config['on_radius'] * u.deg,
-                'containment_correction': tel_config['containment_correction'],
-                'stack': tel_config.get('stack', False),
-                'bins': create_energy_bins(tel_config),
-                'fit_range': tel_config['fit_range'] * u.TeV,
-                'source_position': SkyCoord(ra=source_pos['ra'], dec=source_pos['dec']),
-            }
-
-            yield d
+        return d
 
 
 def add_meta_information(observations, telescope, dataset_config):
@@ -104,10 +102,9 @@ def main(input_dir, config_file, output_dir, telescope):
     each seperate telescope.
     '''
 
-    for dataset_config in config(config_file):
-        tel = dataset_config['telescope']
-        if telescope != 'all' and tel != telescope:
-            continue
+    telescopes = ['magic', 'fact', 'veritas', 'hess']
+    for tel in telescopes:
+        dataset_config = load_config(tel, config_file)
 
         on_radius = dataset_config['on_radius']
         stack = dataset_config['stack']

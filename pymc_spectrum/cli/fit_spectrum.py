@@ -264,7 +264,7 @@ def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_a
     print(np.median(trace['amplitude']), np.median(trace['alpha']), np.median(trace['beta']))
 
     print('--' * 30)
-    print('Plotting traces')
+    # print('Plotting traces')
     # plt.figure()
     # varnames = ['amplitude', 'alpha', 'beta'] if model_type != 'full' else ['amplitude', 'alpha', 'beta', 'mu_b']
     # pm.traceplot(trace, varnames=varnames)
@@ -286,9 +286,9 @@ def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_a
     pm.energyplot(trace)
     plt.savefig(os.path.join(output_dir, 'energy.pdf'))
 
-    plt.figure()
-    pm.autocorrplot(trace, burn=n_tune)
-    plt.savefig(os.path.join(output_dir, 'autocorr.pdf'))
+    # plt.figure()
+    # pm.autocorrplot(trace, burn=n_tune)
+    # plt.savefig(os.path.join(output_dir, 'autocorr.pdf'))
     
     plt.figure()
     pm.forestplot(trace, varnames=['amplitude', 'alpha', 'beta'])

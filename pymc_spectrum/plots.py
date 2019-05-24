@@ -85,7 +85,7 @@ def plot_landscape(model, off_data, N=60):
     return fig, [ax1, ax2]
 
 
-def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV):
+def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, ignore_overflow=False):
     magic_model = Log10Parabola(
         amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
         reference=1 * u.Unit('TeV'),
@@ -136,8 +136,14 @@ def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV):
     lower, upper = np.percentile(flux, [16, 84], axis=0)
     lower_95, upper_95 = np.percentile(flux, [5, 95], axis=0)
 
-    dl = mean_flux - lower
-    du = upper - mean_flux
+    if ignore_overflow:
+        bin_center = bin_center[1:-1]
+        bin_width = bin_width[1:-1]
+        
+        mean_flux = mean_flux[1:-1]
+        lower, upper = lower[1:-1], upper[1:-1]
+        lower_95, upper_95 = lower_95[1:-1], upper_95[1:-1]
+
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
     magic_model.plot(energy_range=fit_range, ls='--', color='gray', label='magic', ax=ax)

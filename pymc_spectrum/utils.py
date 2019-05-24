@@ -14,5 +14,5 @@ def display_data(data):
         s = '█' * n
         if d == 0:
             s = '_'
-        print(s + f'     {d}')
+        print(s + f'     {d:.2f}')
     print(data)
