@@ -6,6 +6,14 @@ from gammapy.spectrum.models import SpectralModel
 import astropy.units as u
 from gammapy.utils.fitting import Parameter, Parameters
 
+def apply_range(*arr, fit_range, bins):
+    '''
+    Takes one or more array-like things and returns only those entries
+    whose bins lie within the fit_range.
+    '''
+    idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
+    return [a[idx[0]:idx[1]] for a in arr]
+
 
 class Log10Parabola(SpectralModel):
     """Gammapy log parabola model matching Sherpa parametrisation.
@@ -85,7 +93,7 @@ def plot_landscape(model, off_data, N=60):
     return fig, [ax1, ax2]
 
 
-def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, ignore_overflow=False):
+def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, area_scaling=1):
     magic_model = Log10Parabola(
         amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
         reference=1 * u.Unit('TeV'),
@@ -127,7 +135,7 @@ def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, ignore_over
 
     # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
     norm = 1 * u.Unit('km-2 s-1 TeV-1')
-    flux = (trace['expected_counts'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2))
+    flux = (trace['expected_counts'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2)) * area_scaling
 
     bin_center = np.sqrt(bins[0:-1] * bins[1:]).to_value('TeV')
     bin_width = np.diff(bins).to_value('TeV')
@@ -136,20 +144,23 @@ def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, ignore_over
     lower, upper = np.percentile(flux, [16, 84], axis=0)
     lower_95, upper_95 = np.percentile(flux, [5, 95], axis=0)
 
-    if ignore_overflow:
-        bin_center = bin_center[1:-1]
-        bin_width = bin_width[1:-1]
+    if fit_range is not None:
+        idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
+        bin_center = bin_center[idx[0]:idx[1]]
+        bin_width = bin_width[idx[0]:idx[1]]
         
-        mean_flux = mean_flux[1:-1]
-        lower, upper = lower[1:-1], upper[1:-1]
-        lower_95, upper_95 = lower_95[1:-1], upper_95[1:-1]
+        mean_flux = mean_flux[idx[0]:idx[1]]
+        lower, upper = lower[idx[0]:idx[1]], upper[idx[0]:idx[1]]
+        lower_95, upper_95 = lower_95[idx[0]:idx[1]], upper_95[idx[0]:idx[1]]
 
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
-    magic_model.plot(energy_range=fit_range, ls='--', color='gray', label='magic', ax=ax)
-    fact_model.plot(energy_range=fit_range, ls=':', color='silver', label='fact', ax=ax)
-    hess_model.plot(energy_range=fit_range, ls='-.', color='darkgray', label='hess', ax=ax)
-    veritas_model.plot(energy_range=fit_range, ls='-', color='lightgray', label='veritas', ax=ax)
+
+    line_range = [0.01, 20] * u.TeV
+    magic_model.plot(energy_range=line_range, ls='--', color='gray', label='magic', ax=ax)
+    fact_model.plot(energy_range=line_range, ls=':', color='silver', label='fact', ax=ax)
+    hess_model.plot(energy_range=line_range, ls='-.', color='darkgray', label='hess', ax=ax)
+    veritas_model.plot(energy_range=line_range, ls='-', color='lightgray', label='veritas', ax=ax)
 
     dl = mean_flux - lower_95
     du = upper_95 - mean_flux
