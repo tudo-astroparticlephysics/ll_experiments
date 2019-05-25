@@ -6,13 +6,7 @@ from gammapy.spectrum.models import SpectralModel
 import astropy.units as u
 from gammapy.utils.fitting import Parameter, Parameters
 
-def apply_range(*arr, fit_range, bins):
-    '''
-    Takes one or more array-like things and returns only those entries
-    whose bins lie within the fit_range.
-    '''
-    idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
-    return [a[idx[0]:idx[1]] for a in arr]
+
 
 
 class Log10Parabola(SpectralModel):
@@ -48,6 +42,35 @@ class Log10Parabola(SpectralModel):
             exponent = -alpha - beta * log10(xx)
 
         return amplitude * np.power(xx, exponent)
+
+
+magic_model = Log10Parabola(
+    amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+    reference=1 * u.Unit('TeV'),
+    alpha=2.58 * u.Unit(''),
+    beta=0.43 * u.Unit(''),
+)
+
+fact_model = Log10Parabola(
+    amplitude=3.5 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+    reference=1 * u.Unit('TeV'),
+    alpha=2.56 * u.Unit(''),
+    beta=0.4 * u.Unit(''),
+)
+
+hess_model = Log10Parabola(
+    amplitude=4.47 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+    reference=1 * u.Unit('TeV'),
+    alpha=2.39 * u.Unit(''),
+    beta=0.37 * u.Unit(''),
+)
+
+veritas_model = Log10Parabola(
+    amplitude=3.76 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
+    reference=1 * u.Unit('TeV'),
+    alpha=2.44 * u.Unit(''),
+    beta=0.26 * u.Unit(''),
+)
 
 
 def plot_landscape(model, off_data, N=60):
@@ -93,88 +116,62 @@ def plot_landscape(model, off_data, N=60):
     return fig, [ax1, ax2]
 
 
-def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, area_scaling=1):
-    magic_model = Log10Parabola(
-        amplitude=4.20 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
-        reference=1 * u.Unit('TeV'),
-        alpha=2.58 * u.Unit(''),
-        beta=0.43 * u.Unit(''),
-    )
+def plot_excees(excess, bins, ax=None):
+    if not ax:
+        ax = plt.gca()
 
-    fact_model = Log10Parabola(
-        amplitude=3.5 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
-        reference=1 * u.Unit('TeV'),
-        alpha=2.56* u.Unit(''),
-        beta=0.4 * u.Unit(''),
-    )
-
-    hess_model = Log10Parabola(
-        amplitude=4.47 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
-        reference=1 * u.Unit('TeV'),
-        alpha=2.39* u.Unit(''),
-        beta=0.37 * u.Unit(''),
-    )
-
-    veritas_model = Log10Parabola(
-        amplitude=3.76 * 1e-11 * u.Unit('cm-2 s-1 TeV-1'),
-        reference=1 * u.Unit('TeV'),
-        alpha=2.44 * u.Unit(''),
-        beta=0.26 * u.Unit(''),
-    )
+    ax.step(bins[:-1], excess, where='post')
 
 
-    # e_center = stacked_observation.edisp.e_true.log_center().to_value(u.TeV)[1:-1]
-    # bin_width = stacked_observation.edisp.e_true.bin_width.to_value(u.TeV)[1:-1]
+def plot_unfolding_result(trace, bins, fit_range=[0.01, 20] * u.TeV, area_scaling=1, ax=None):
+    if not ax:
+        ax = plt.gca()
 
-    # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
-    # norm = norm[1:-1]
-    # flux = trace['mu_s'][:, 1:-1] * norm
-    
-    # e_center = stacked_observation.edisp.e_true.log_center().to_value(u.TeV)
-    # bin_width = stacked_observation.edisp.e_true.bin_width.to_value(u.TeV)
-
+    bins = bins.to_value('TeV')
+    transformed_samples = trace['expected_counts'][:, :]
     # norm = 1 / stacked_observation.aeff.data.data / stacked_observation.livetime / stacked_observation.edisp.e_true.bin_width
     norm = 1 * u.Unit('km-2 s-1 TeV-1')
-    flux = (trace['expected_counts'][:, :] * norm).to_value(1 / (u.TeV * u.s * u.cm**2)) * area_scaling
+    flux = (transformed_samples * norm).to_value(1 / (u.TeV * u.s * u.cm**2)) * area_scaling
 
-    bin_center = np.sqrt(bins[0:-1] * bins[1:]).to_value('TeV')
-    bin_width = np.diff(bins).to_value('TeV')
-
-    mean_flux = np.median(flux, axis=0)
-    lower, upper = np.percentile(flux, [16, 84], axis=0)
-    lower_95, upper_95 = np.percentile(flux, [5, 95], axis=0)
-
-    if fit_range is not None:
-        idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
-        bin_center = bin_center[idx[0]:idx[1]]
-        bin_width = bin_width[idx[0]:idx[1]]
-        
-        mean_flux = mean_flux[idx[0]:idx[1]]
-        lower, upper = lower[idx[0]:idx[1]], upper[idx[0]:idx[1]]
-        lower_95, upper_95 = lower_95[idx[0]:idx[1]], upper_95[idx[0]:idx[1]]
-
-
-    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
-
+    bin_center = np.sqrt(bins[0:-1] * bins[1:])
+    # bin_width = np.diff(bins)
+    
+    lower, mean_flux, upper = np.nanpercentile(flux, [16, 50, 84], axis=0)
+    lower_95, upper_95 = np.nanpercentile(flux, [5, 95], axis=0)
+    print(mean_flux)
     line_range = [0.01, 20] * u.TeV
     magic_model.plot(energy_range=line_range, ls='--', color='gray', label='magic', ax=ax)
     fact_model.plot(energy_range=line_range, ls=':', color='silver', label='fact', ax=ax)
     hess_model.plot(energy_range=line_range, ls='-.', color='darkgray', label='hess', ax=ax)
     veritas_model.plot(energy_range=line_range, ls='-', color='lightgray', label='veritas', ax=ax)
 
+    xl = bin_center - bins[:-1]
+    xu = bins[1:] - bin_center
+
     dl = mean_flux - lower_95
     du = upper_95 - mean_flux
-
     ax.errorbar(bin_center, mean_flux, yerr=[dl, du], linestyle='', color='gray')
 
     dl = mean_flux - lower
     du = upper - mean_flux
-    ax.errorbar(bin_center, mean_flux, yerr=[dl, du], xerr=bin_width / 2, linestyle='')
+
+    ax.errorbar(bin_center, mean_flux, yerr=[dl, du], xerr=[xl, xu], linestyle='')
+
+    if fit_range is not None:
+        idx = np.searchsorted(bins, fit_range.to_value(u.TeV))
+        # bin_center = bin_center[idx[0]:idx[1]]
+        # bin_width = bin_width[idx[0]:idx[1]]
+        
+        mean_flux_range = mean_flux[idx[0]:idx[1]]
+        x = bin_center[idx[0]:idx[1]]
+        ax.scatter(x, mean_flux_range, color='blue', s=30, )
+        # lower, upper = lower[idx[0]:idx[1]], upper[idx[0]:idx[1]]
+        # lower_95, upper_95 = lower_95[idx[0]:idx[1]], upper_95[idx[0]:idx[1]]
+        ax.axvspan(*fit_range.to_value('TeV'), color='blue', alpha=0.2)
 
 
-
-    ax.legend()
-    return fig, ax
+    # ax1.legend()
+    
 
 
 

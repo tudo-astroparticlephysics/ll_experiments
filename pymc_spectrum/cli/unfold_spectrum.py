@@ -17,7 +17,7 @@ from gammapy.spectrum import SpectrumExtraction
 
 from regions import CircleSkyRegion
 
-from ..plots import plot_unfolding_result
+from ..plots import plot_unfolding_result, plot_excees
 import click
 import os
 import shutil
@@ -29,10 +29,19 @@ def create_energy_bins(n_bins_per_decade=10, fit_range=None, overflow=False):
     bins = np.logspace(-2, 2, (4 * n_bins_per_decade) + 1)
     if fit_range is not None:
         bins = apply_range(bins, fit_range=fit_range, bins=bins * u.TeV)[0]
-    if overflow:
-        bins = np.append(bins, 500)
-        bins = np.append(0.001, bins)
+        bins = np.append(0.01, bins)
+        bins = np.append(bins, 100)
     return bins * u.TeV
+
+
+def apply_range(*arr, fit_range, bins):
+    '''
+    Takes one or more array-like things and returns only those entries
+    whose bins lie within the fit_range.
+    '''
+    idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
+    lo, up = idx[0], idx[1] + 1
+    return [a[lo:min(up, len(a) - 1)] for a in arr]
 
 
 def load_data(input_dir, dataset_config, exclusion_map=None):
@@ -86,13 +95,6 @@ def transform(mu_s, aeff):
     return pm.math.log(mu_s / aeff)
 
 
-def apply_range(*arr, fit_range, bins):
-    '''
-    Takes one or more array-like things and returns only those entries
-    whose bins lie within the fit_range.
-    '''
-    idx = np.searchsorted(bins.to_value(u.TeV), fit_range.to_value(u.TeV))
-    return [a[idx[0]:idx[1]] for a in arr]
 
 
 def prepare_output(output_dir):
@@ -100,32 +102,6 @@ def prepare_output(output_dir):
         print('Overwriting previous results')
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
-
-
-def forward_fold(counts, observations, fit_range, area_scaling=1):
-    '''
-    Forward fold the spectral model through the instrument functions given in the 'observations'
-    Returns the predicted counts in each energy bin.
-    '''
-
-    predicted_signal_per_observation = []
-    for observation in observations:
-        obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
-
-        aeff = observation.aeff.data.data.to_value(u.km**2).astype(np.float32) * area_scaling
-
-        e_true_bin_width = observation.e_true.diff().to_value('TeV')
-        c = counts * aeff * e_true_bin_width
-        c *= observation.livetime.to_value(u.s)
-        edisp = observation.edisp.pdf_matrix
-        predicted_signal_per_observation.append(T.dot(c, edisp))
-
-    predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
-
-    idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
-    predicted_counts = predicted_counts[idx[0]:idx[1]]
-
-    return predicted_counts
 
 
 def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
@@ -146,15 +122,6 @@ def calc_mu_b(mu_s, on_data, off_data, exposure_ratio):
     # mu_b  = T.where(on_data == 0, off_data/(alpha + 1), mu_b)
     # mu_b  = T.where(off_data == 0, on_data/(alpha + 1) - mu_s/alpha, mu_b)
     return mu_b
-
-
-def apply_range(*arr, fit_range, bins):
-    '''
-    Takes one or more array-like things and returns only those entries
-    whose bins lie within the fit_range.
-    '''
-    idx = np.searchsorted(bins.to(u.TeV).value, fit_range.to_value(u.TeV))
-    return [a[idx[0]:idx[1]] for a in arr]
 
 
 def get_observed_counts(observations, fit_range, bins):
@@ -187,19 +154,45 @@ def load_config(config_file, telescope):
         d = yaml.load(f)
         source_pos = d['source_position']
         tel_config = d['datasets'][telescope]
-
+        fit_range = tel_config['fit_range'] * u.TeV
         d = {
             'telescope': telescope,
             'on_radius': tel_config['on_radius'] * u.deg,
             'containment_correction': tel_config['containment_correction'],
             'stack': tel_config.get('stack', False),
-            'fit_range': tel_config['fit_range'] * u.TeV,
-            'e_reco_bins': create_energy_bins(tel_config['bins_per_decade'] + 2, overflow=True),
-            'e_true_bins': create_energy_bins(tel_config['bins_per_decade'], overflow=True),
+            'fit_range': fit_range,
+            'e_reco_bins': create_energy_bins(20, ),
+            'e_true_bins': create_energy_bins(tel_config['bins_per_decade'], fit_range=fit_range),
             'source_position': SkyCoord(ra=source_pos['ra'], dec=source_pos['dec']),
         }
 
         return d
+
+
+def forward_fold(counts, observations, fit_range, area_scaling=1):
+    '''
+    Forward fold the spectral model through the instrument functions given in the 'observations'
+    Returns the predicted counts in each energy bin.
+    '''
+    # counts = T.exp(counts) 
+    predicted_signal_per_observation = []
+    for observation in observations:
+        obs_bins = observation.on_vector.energy.bins.to_value(u.TeV)
+        aeff = observation.aeff.data.data.to_value(u.km**2).astype(np.float32) * area_scaling
+        e_true_bin_width = observation.e_true.diff().to_value('TeV')
+
+        c = counts * aeff * e_true_bin_width * observation.livetime.to_value(u.s)
+
+        edisp = observation.edisp.pdf_matrix
+        predicted_signal_per_observation.append(T.dot(c, edisp))
+
+    predicted_counts = T.sum(predicted_signal_per_observation, axis=0)
+
+    idx = np.searchsorted(obs_bins, fit_range.to_value(u.TeV))
+    predicted_counts = predicted_counts[idx[0]:idx[1] + 1]
+
+    return predicted_counts
+
 
 @click.command()
 @click.argument('input_dir', type=click.Path(dir_okay=True, file_okay=False))
@@ -210,7 +203,7 @@ def load_config(config_file, telescope):
 @click.option('--tau', default=0)
 @click.option('--n_samples', default=3000)
 @click.option('--n_tune', default=1500)
-@click.option('--target_accept', default=0.99999)
+@click.option('--target_accept', default=0.9)
 @click.option('--n_cores', default=6)
 @click.option('--seed', default=80085)
 @click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
@@ -220,8 +213,8 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     config = load_config(config_file, dataset)
     fit_range = config['fit_range']
     path = os.path.join(input_dir, dataset)
-
     observations = load_data(path, config)
+    e_true_bins = config['e_true_bins']
     # exposure_ratio = observations[0].alpha
     # from IPython import embed; embed()
     on_data, off_data, excess, exposure_ratio = get_observed_counts(observations, fit_range=fit_range, bins=config['e_reco_bins'])
@@ -238,13 +231,14 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     # print(f'IRF with {len( config['e_true_bins'] ) - 1, len( config['e_reco_bins'] ) - 1}')
     print(f'Using {len(on_data)} bins with { on_data.sum()} counts in on region and {off_data.sum()} counts in off region.')
 
-    area_scaling = 0.1
+    area_scaling = 1
     print(observations[0].aeff.data.data.to_value(u.km**2).astype(np.float32) * area_scaling)
     model = pm.Model(theano_config={'compute_test_value': 'ignore'})
     with model:
         # mu_b = pm.TruncatedNormal('mu_b', shape=len(off_data), sd=5, mu=off_data, lower=0.01)
-        expected_counts = pm.Lognormal('expected_counts', shape=len(config['e_true_bins']) - 1, testval=10)
-        # expected_counts = pm.HalfFlat('expected_counts', shape=len(config['e_true_bins']) - 1, testval=10)
+        # expected_counts = pm.Lognormal('expected_counts', shape=len(config['e_true_bins']) - 1, testval=10, sd=1)
+        expected_counts = pm.TruncatedNormal('expected_counts', shape=len(e_true_bins) - 1, testval=0.5, mu=2, sd=50, lower=0.0001)
+        # expected_counts = pm.HalfFlat('expected_counts', shape=len(e_true_bins) - 1, testval=10)
         # c = expected_counts / area_scaling
         mu_s = forward_fold(expected_counts, observations, fit_range=fit_range, area_scaling=area_scaling)
 
@@ -253,8 +247,8 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
             mu_b = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
         else:
             print('Building full likelihood model')
-            # mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
-            mu_b = pm.Lognormal('mu_b', shape=len(off_data), sd=5)
+            mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
+            # mu_b = pm.Lognormal('mu_b', shape=len(off_data), sd=5)
 
 
         pm.Poisson('background', mu=mu_b + 1E-5, observed=off_data)
@@ -277,8 +271,12 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
 
     print('--' * 30)
     print('Plotting result')
-    print(area_scaling)
-    plot_unfolding_result(trace, bins=config['e_true_bins'], area_scaling=area_scaling)
+    # print(area_scaling)
+
+    fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+
+    plot_unfolding_result(trace, bins=e_true_bins, area_scaling=area_scaling, fit_range=fit_range, ax=ax1)
+    plot_excees(excess, bins=config['e_reco_bins'], ax=ax2)
     plt.savefig(os.path.join(output_dir, 'result.pdf'))
 
 
