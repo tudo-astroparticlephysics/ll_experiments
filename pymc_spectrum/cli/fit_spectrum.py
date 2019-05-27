@@ -226,7 +226,7 @@ def main(input_dir, output_dir, dataset, model_type, n_samples, n_tune, target_a
             mu_b = pm.Deterministic('mu_b', calc_mu_b(mu_s, on_data, off_data, exposure_ratio))
         else:
             print('Building full likelihood model')
-            mu_b = pm.TruncatedNormal('mu_b', lower=0, shape=len(off_data), mu=off_data, sd=5)
+            mu_b = pm.HalfFlat('mu_b', shape=len(off_data))
 
         pm.Poisson('background', mu=mu_b, observed=off_data, shape=len(off_data))
         pm.Poisson('signal', mu=mu_s + exposure_ratio * mu_b, observed=on_data, shape=len(on_data))

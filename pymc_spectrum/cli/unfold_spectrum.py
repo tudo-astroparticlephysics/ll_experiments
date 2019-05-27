@@ -80,19 +80,19 @@ def load_data(input_dir, dataset_config, exclusion_map=None):
         return extract.spectrum_observations
 
 
-def thikonov(f, normalize=False):
-    if normalize:
-        f = f / f.sum()
+# def thikonov(f, normalize=False):
+#     if normalize:
+#         f = f / f.sum()
 
-    laplace_matrix = laplace(np.eye(len(f))) // 2
+#     laplace_matrix = laplace(np.eye(len(f))) // 2
 
-    a = T.dot(laplace_matrix, f)
-    a_transposed = a.T
-    return T.dot(a, a_transposed)
+#     a = T.dot(laplace_matrix, f)
+#     a_transposed = a.T
+#     return T.dot(a, a_transposed)
 
 
-def transform(mu_s, aeff):
-    return pm.math.log(mu_s / aeff)
+# def transform(mu_s, aeff):
+#     return pm.math.log(mu_s / aeff)
 
 
 
@@ -203,7 +203,7 @@ def forward_fold(counts, observations, fit_range, area_scaling=1):
 @click.option('--tau', default=0)
 @click.option('--n_samples', default=3000)
 @click.option('--n_tune', default=1500)
-@click.option('--target_accept', default=0.9)
+@click.option('--target_accept', default=0.9999)
 @click.option('--n_cores', default=6)
 @click.option('--seed', default=80085)
 @click.option('--init', default='advi+adapt_diag', help='Set pymc sampler init string.')
@@ -215,9 +215,10 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     path = os.path.join(input_dir, dataset)
     observations = load_data(path, config)
     e_true_bins = config['e_true_bins']
+    e_reco_bins = config['e_reco_bins']
     # exposure_ratio = observations[0].alpha
     # from IPython import embed; embed()
-    on_data, off_data, excess, exposure_ratio = get_observed_counts(observations, fit_range=fit_range, bins=config['e_reco_bins'])
+    on_data, off_data, excess, exposure_ratio = get_observed_counts(observations, fit_range=fit_range, bins=e_reco_bins)
     print(f'Exposure ratio {exposure_ratio}')
     # from IPython import embed; embed()
     # print(f'On Data {on_data.shape}\n')
@@ -225,7 +226,10 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     # print(f'\n\n Off Data {off_data.shape}\n')
     # display_data(off_data)
     print(f'Excess {excess.shape} \n')
-    display_data(excess)
+    idx = np.searchsorted(e_reco_bins.to_value(u.TeV), fit_range.to_value(u.TeV))
+    lo, up = idx[0], idx[1] + 1
+    indices = np.argwhere(excess > 5)
+    display_data(excess, mark_indices=indices, low_index=lo, high_index=up)
     print('--' * 30)
     print(f'Unfolding data for:  {dataset.upper()}.  ')
     # print(f'IRF with {len( config['e_true_bins'] ) - 1, len( config['e_reco_bins'] ) - 1}')
@@ -302,7 +306,17 @@ def main(input_dir, config_file, output_dir, dataset, model_type, tau, n_samples
     pm.forestplot(trace)
     plt.savefig(os.path.join(output_dir, 'forest.pdf'))
     
+    p = os.path.join(output_dir, 'num_samples.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_samples}}}')
 
+    p = os.path.join(output_dir, 'num_chains.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_cores}}}')
+    
+    p = os.path.join(output_dir, 'num_tune.txt')
+    with open(p, "w") as text_file:
+        text_file.write(f'\\num{{{n_tune}}}')
 
 if __name__ == '__main__':
     main()
