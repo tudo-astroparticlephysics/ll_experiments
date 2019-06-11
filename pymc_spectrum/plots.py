@@ -97,7 +97,7 @@ def plot_landscape(model, off_data, N=60):
                 amplitude_log__=np.log(4),
                 alpha_log__=np.log(al),
                 beta_log__=np.log(be),
-                mu_b_lowerbound__=np.log(off_data + 0.1)
+                mu_b_log__=np.log(off_data + 0.1)
             )
         zs.append(p)
     zs = np.array(zs)
