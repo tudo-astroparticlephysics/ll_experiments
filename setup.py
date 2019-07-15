@@ -26,6 +26,8 @@ setup(
         'pymc3==3.6',
         'gammapy==0.10',
         'astropy>=3.1.2',
+        'ruamel.yaml>=0.15.0',
+        'pydot===1.4.1',
     ],
     zip_safe=False,
     entry_points={

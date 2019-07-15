@@ -1,6 +1,6 @@
 import click
 
-from pyaml import yaml
+from ruamel.yaml import YAML
 import os
 
 import numpy as np
@@ -16,6 +16,9 @@ from gammapy.spectrum import SpectrumExtraction
 from regions import CircleSkyRegion
 
 from ..plots import plot_counts
+
+
+yaml = YAML(typ='safe')
 
 
 def create_data(input_dir, dataset_config, exclusion_map=None):
